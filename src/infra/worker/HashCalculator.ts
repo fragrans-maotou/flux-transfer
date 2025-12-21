@@ -52,8 +52,8 @@ export class HashCalculator {
       const end = Math.min(start + chunkSize, file.size);
       const chunk = file.slice(start, end);
 
-      // Read chunk as ArrayBuffer
-      const arrayBuffer = await chunk.arrayBuffer();
+      // Read chunk as ArrayBuffer using FileReader (compatible with tests)
+      const arrayBuffer = await this.blobToArrayBuffer(chunk);
       spark.append(arrayBuffer);
 
       // Report progress
@@ -71,6 +71,18 @@ export class HashCalculator {
       size: file.size,
       duration,
     };
+  }
+
+  /**
+   * Convert Blob to ArrayBuffer using FileReader
+   */
+  private static blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
   }
 
   /**
@@ -110,18 +122,19 @@ export class HashCalculator {
     const spark = new SparkMD5.ArrayBuffer();
 
     // Add file size
-    spark.append(new TextEncoder().encode(file.size.toString()));
+    const sizeBuffer = new TextEncoder().encode(file.size.toString()).buffer;
+    spark.append(sizeBuffer);
 
     // First chunk
     if (file.size > 0) {
       const firstChunk = file.slice(0, Math.min(chunkSize, file.size));
-      spark.append(await firstChunk.arrayBuffer());
+      spark.append(await this.blobToArrayBuffer(firstChunk));
     }
 
     // Last chunk (if file is large enough)
     if (file.size > chunkSize) {
       const lastChunk = file.slice(Math.max(0, file.size - chunkSize));
-      spark.append(await lastChunk.arrayBuffer());
+      spark.append(await this.blobToArrayBuffer(lastChunk));
     }
 
     return spark.end();
