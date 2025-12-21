@@ -13,6 +13,7 @@ export { TaskQueue, TaskPriority } from './core/TaskQueue';
 export { EventEmitter } from './infra/EventEmitter';
 export { IndexedDBStorage } from './infra/storage/IndexedDBStorage';
 export { FetchAdapter } from './infra/network/FetchAdapter';
+export { HashCalculator, type IHashResult, type IHashOptions } from './infra/worker/HashCalculator';
 
 // Uploader utilities
 export { ChunkManager, type IChunk } from './core/uploader/ChunkManager';
