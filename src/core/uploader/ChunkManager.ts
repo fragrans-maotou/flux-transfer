@@ -49,18 +49,71 @@ export class ChunkManager {
     for (let i = 0; i < totalChunks; i++) {
       const start = i * this.chunkSize;
       const end = Math.min(start + this.chunkSize, this.file.size);
-      const blob = this.file.slice(start, end);
-
-      this.chunks.push({
-        index: i,
-        start,
-        end,
-        size: end - start,
-        blob,
-        status: 'pending',
-        retryCount: 0,
-      });
+      this.addChunk(i, start, end);
     }
+  }
+
+  private addChunk(index: number, start: number, end: number): void {
+    const blob = this.file.slice(start, end);
+    this.chunks.push({
+      index,
+      start,
+      end,
+      size: end - start,
+      blob,
+      status: 'pending',
+      retryCount: 0,
+    });
+  }
+
+  /**
+   * Resize remaining pending chunks
+   */
+  resizeRemaining(newSize: number): void {
+    if (newSize < 1024) return;
+    this.chunkSize = newSize;
+
+    // Find first pending chunk index
+    const firstPendingIdx = this.chunks.findIndex(c => c.status === 'pending');
+    if (firstPendingIdx === -1) return;
+
+    // Get start offset of first pending chunk
+    const startOffset = this.chunks[firstPendingIdx].start;
+
+    // Remove all chunks from this point
+    this.chunks.splice(firstPendingIdx);
+
+    // Re-create chunks from this offset
+    const remainingSize = this.file.size - startOffset;
+    const count = Math.ceil(remainingSize / this.chunkSize);
+
+    for (let i = 0; i < count; i++) {
+      const start = startOffset + (i * this.chunkSize);
+      const end = Math.min(start + this.chunkSize, this.file.size);
+      // New index is firstPendingIdx + i
+      this.addChunk(firstPendingIdx + i, start, end);
+    }
+  }
+
+  /**
+   * Get chunk layout for checkpoint
+   */
+  getChunkLayout(): { index: number; start: number; end: number }[] {
+    return this.chunks.map(c => ({
+      index: c.index,
+      start: c.start,
+      end: c.end
+    }));
+  }
+
+  /**
+   * Restore from layout
+   */
+  restoreLayout(layout: { index: number; start: number; end: number }[]): void {
+    this.chunks = [];
+    layout.forEach(c => {
+      this.addChunk(c.index, c.start, c.end);
+    });
   }
 
   /**

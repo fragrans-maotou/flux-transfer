@@ -20,6 +20,15 @@ export class FetchAdapter implements INetworkAdapter {
     const abortController = new AbortController();
     this.abortControllers.set(requestId, abortController);
 
+    // Handle external abort signal
+    if (config.signal) {
+      if (config.signal.aborted) {
+        abortController.abort();
+      } else {
+        config.signal.addEventListener('abort', () => abortController.abort());
+      }
+    }
+
     try {
       const headers = new Headers(config.headers || {});
 
@@ -132,7 +141,7 @@ export class FetchAdapter implements INetworkAdapter {
       }
 
       // Combine chunks into blob
-      return new Blob(chunks);
+      return new Blob(chunks as BlobPart[]);
     } finally {
       reader.releaseLock();
     }

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flux Transfer - Simple Upload</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .progress-bar {
+      height: 20px;
+      background-color: #eee;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 1rem 0;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background-color: #007bff;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    button {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+    }
+
+    pre {
+      background: #f5f5f5;
+      padding: 1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Flux Transfer - Simple Upload</h1>
+
+  <div class="card">
+    <h3>Select Files / Folder</h3>
+    <div style="margin-bottom: 1rem;">
+      <label>Files: </label>
+      <input type="file" id="fileInput" multiple>
+    </div>
+    <div style="margin-bottom: 1rem;">
+      <label>Folder: </label>
+      <input type="file" id="folderInput" webkitdirectory directory multiple>
+    </div>
+    <div style="margin-top: 1rem;">
+      <button id="uploadBtn" disabled>Start Upload</button>
+      <button id="clearBtn">Clear Tasks</button>
+    </div>
+  </div>
+
+  <div class="card" id="groupStatusCard" style="display: none;">
+    <h3>Group Progress (<span id="groupIdDisplay"></span>)</h3>
+    <div class="progress-bar">
+      <div id="groupProgressFill" class="progress-fill" style="background-color: #28a745;"></div>
+    </div>
+    <div id="groupStatusText">Status: In Progress</div>
+  </div>
+
+  <div id="tasksContainer">
+    <!-- Tasks will be injected here -->
+  </div>
+
+  <div class="card" id="historyCard" style="display: none; margin-top: 20px; border-top: 2px dashed #eee;">
+    <h3>Recoverable Sessions (IndexedDB)</h3>
+    <ul id="historyList" style="list-style: none; padding: 0;"></ul>
+  </div>
+
+  <template id="taskTemplate">
+    <div class="card task-card">
+      <h4 class="task-name">File Name</h4>
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+      <div class="task-status">Status: Idle</div>
+      <div class="task-speed">Speed: 0 B/s</div>
+      <div style="margin-top: 0.5rem;">
+        <button class="pause-btn">Pause</button>
+        <button class="resume-btn">Resume</button>
+        <button class="cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </template>
+
+  <div class="card">
+    <h3>Logs</h3>
+    <pre id="logOutput"></pre>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+
+</html>

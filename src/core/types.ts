@@ -86,6 +86,20 @@ export interface ITransferCheckpoint {
   fileHash?: string;
   /** Last update timestamp */
   timestamp: number;
+  /** File fingerprint (md5(name+size+mtime+path)) */
+  fingerprint?: string;
+  /** File name */
+  fileName?: string;
+  /** File size */
+  fileSize?: number;
+  /** File last modified timestamp */
+  lastModified?: number;
+  /** File relative path */
+  path?: string;
+  /** File object (if supported by storage) */
+  file?: File;
+  /** Chunk layout for dynamic chunking */
+  chunkLayout?: { index: number; start: number; end: number }[];
   /** Additional metadata */
   metadata?: Record<string, unknown>;
 }
@@ -104,6 +118,8 @@ export interface ITransferTask {
   fileSize: number;
   /** File type (MIME type) */
   fileType: string;
+  /** Relative path (for folder uploads) */
+  path?: string;
   /** Transfer progress (0-100) */
   progress: number;
   /** Transfer speed in bytes per second */
@@ -120,6 +136,10 @@ export interface ITransferTask {
   updatedAt: number;
   /** Custom metadata */
   metadata?: Record<string, unknown>;
+  /** Group ID for batch tasks */
+  groupId?: string;
+  /** File hash */
+  hash?: string;
 }
 
 /**
@@ -142,6 +162,8 @@ export interface INetworkRequestConfig {
   onProgress?: (loaded: number, total: number) => void;
   /** Response type */
   responseType?: 'json' | 'text' | 'blob' | 'arraybuffer';
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 /**
