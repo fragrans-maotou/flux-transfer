@@ -6,6 +6,8 @@ import { BaseTransfer } from './BaseTransfer';
 import { ChunkManager } from './uploader/ChunkManager';
 import { TaskStatus, ErrorCode, type ITransferTask, type ISDKConfig } from './types';
 import { HashCalculator } from '../infra/worker/HashCalculator';
+import { PluginManager } from './plugin/PluginManager';
+import { IPluginContext } from './plugin/types';
 
 /**
  * Upload configuration interface
@@ -34,11 +36,23 @@ export class Uploader extends BaseTransfer {
   private chunkManager?: ChunkManager;
   private uploadingChunks: Set<number> = new Set();
   private abortController: AbortController | null = null;
+  private pluginManager: PluginManager;
 
   constructor(task: ITransferTask, file: File, config: IUploadConfig) {
     super(task, config);
     this.file = file;
     this.uploadConfig = config;
+    this.pluginManager = new PluginManager(config.plugins || []);
+
+    // Hook: onTaskCreated
+    this.pluginManager.runHook('onTaskCreated', this.getPluginContext());
+  }
+
+  private getPluginContext(): IPluginContext {
+    return {
+      task: this.task,
+      uploader: this
+    };
   }
 
   /**
@@ -51,6 +65,10 @@ export class Uploader extends BaseTransfer {
     try {
       this.abortController = new AbortController();
       this.initializeTransfer();
+
+      // Hook: beforeStart
+      await this.pluginManager.runHook('beforeStart', this.getPluginContext());
+
       this.setStatus(TaskStatus.Processing);
 
       // Load checkpoint if available
@@ -111,6 +129,9 @@ export class Uploader extends BaseTransfer {
       }
       this.setStatus(TaskStatus.Transferring);
 
+      // Hook: afterStart
+      await this.pluginManager.runHook('afterStart', this.getPluginContext());
+
       // Start uploading
       await this.uploadChunks();
 
@@ -126,6 +147,10 @@ export class Uploader extends BaseTransfer {
 
       this.setStatus(TaskStatus.Completed);
       await this.deleteCheckpoint();
+
+      // Hook: onSuccess
+      await this.pluginManager.runHook('onSuccess', this.getPluginContext());
+
     } catch (error) {
       const transferError = this.createTransferError(
         ErrorCode.ChunkUploadFailed,
@@ -133,6 +158,9 @@ export class Uploader extends BaseTransfer {
         error instanceof Error ? error : undefined,
       );
       this.setError(transferError);
+
+      // Hook: onError
+      await this.pluginManager.runHook('onError', this.getPluginContext(), error);
     }
   }
 
@@ -217,6 +245,9 @@ export class Uploader extends BaseTransfer {
       const uploadedBytes = this.chunkManager.getUploadedBytes();
       this.updateProgress(uploadedBytes, this.file.size);
 
+      // Hook: onProgress
+      this.pluginManager.runHookParallel('onProgress', this.getPluginContext(), this.task.progress);
+
       // Save checkpoint
       if (this.config.enableCheckpoint) {
         await this.saveCheckpoint();
@@ -266,13 +297,18 @@ export class Uploader extends BaseTransfer {
           throw new Error('Network adapter not configured');
         }
 
-        await this.config.networkAdapter.request({
+        let requestConfig: import('./types').INetworkRequestConfig = {
           url: uploadUrl,
           method: 'POST',
           body: formData,
           timeout: this.config.timeout,
           signal: this.abortController?.signal,
-        });
+        };
+
+        // Hook: transformRequest (Middleware)
+        requestConfig = await this.pluginManager.transformRequest(requestConfig);
+
+        await this.config.networkAdapter.request(requestConfig);
       }, ErrorCode.ChunkUploadFailed);
 
       this.chunkManager.markChunkComplete(index);

@@ -1,6 +1,8 @@
 import { Uploader, type IUploadConfig } from './Uploader';
 import { TaskStatus, type ITransferTask } from './types';
 import { TaskQueue } from './TaskQueue';
+import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
+import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
 
 /**
  * TransferManager - High-level API for managing file transfers
@@ -12,7 +14,20 @@ export class TransferManager {
 
   constructor(config: IUploadConfig = { maxConcurrent: 3 }) {
     this.config = config;
-    this.queue = new TaskQueue(config.maxConcurrent || 3)
+    this.queue = new TaskQueue(config.maxConcurrent || 3);
+
+    // Auto-initialize storage adapter if not provided
+    if (this.config.enableCheckpoint !== false && !this.config.storageAdapter) {
+      this.initDefaultStorage();
+    }
+  }
+
+  private initDefaultStorage(): void {
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      this.config.storageAdapter = new IndexedDBStorage();
+    } else if (typeof window !== 'undefined' && window.localStorage) {
+      this.config.storageAdapter = new LocalStorageAdapter();
+    }
   }
 
   /**
@@ -42,8 +57,6 @@ export class TransferManager {
     // Merge manager config with task config
     const finalConfig = { ...this.config, ...config };
     const uploader = new Uploader(task, file, finalConfig);
-    console.log("uploaderuploader", uploader);
-
     this.tasks.set(taskId, uploader);
 
     // If queue is configured, we could auto-enqueue, but for now let's just return it
@@ -120,13 +133,10 @@ export class TransferManager {
    * Get all recoverable sessions from storage
    */
   async getRecoverableSessions(): Promise<any[]> {
-    console.log("this.config", this.config);
-
     if (!this.config.storageAdapter || !this.config.enableCheckpoint) {
       return [];
     }
 
-    console.log("this.config11", this.config);
     try {
       const keys = await this.config.storageAdapter.keys();
       const checkpoints = [];

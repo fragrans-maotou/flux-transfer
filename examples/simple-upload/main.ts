@@ -19,12 +19,12 @@ const historyList = document.getElementById('historyList') as HTMLUListElement;
 
 // Initialize Manager with Persistence
 const storage = new IndexedDBStorage();
-console.log("storage", storage);
 
 const manager = new TransferManager({
   maxConcurrent: 3,
   storageAdapter: storage,
   enableCheckpoint: true, // Enable IndexedDB persistence
+
 }); // Allow 3 concurrent tasks
 let currentGroupId: string | null = null;
 

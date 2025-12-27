@@ -269,12 +269,14 @@ export interface ISDKConfig {
   maxFileSize?: number;
   /** Allowed file types (MIME types or extensions) */
   allowedFileTypes?: string[];
+  /** Plugins for SDK extension */
+  plugins?: import('./plugin/types').IPlugin[];
 }
 
 /**
  * Default SDK configuration
  */
-export const DEFAULT_SDK_CONFIG: Required<Omit<ISDKConfig, 'storageAdapter' | 'networkAdapter' | 'allowedFileTypes'>> = {
+export const DEFAULT_SDK_CONFIG: Required<Omit<ISDKConfig, 'storageAdapter' | 'networkAdapter' | 'allowedFileTypes' | 'plugins'>> = {
   maxConcurrent: 3,
   chunkSize: 5 * 1024 * 1024, // 5MB
   maxRetries: 3,
