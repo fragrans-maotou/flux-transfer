@@ -5,7 +5,7 @@ import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
 
 /**
- * TransferManager - High-level API for managing file transfers
+ * TransferManager - 高级API，用于管理文件传输
  */
 export class TransferManager {
   private queue: TaskQueue;

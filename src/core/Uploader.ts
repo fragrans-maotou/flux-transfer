@@ -1,5 +1,5 @@
 /**
- * Uploader - File upload with chunking and resume support
+ * Uploader - 文件上传，支持分片和断点续传
  */
 
 import { BaseTransfer } from './BaseTransfer';
@@ -99,7 +99,7 @@ export class Uploader extends BaseTransfer {
         this.setStatus(TaskStatus.Processing);
         try {
           const result = await HashCalculator.calculateHash(this.file, {
-            onProgress: (progress) => {
+            onProgress: (_progress) => {
               // Optional: emit hash progress
             }
           });
@@ -123,10 +123,10 @@ export class Uploader extends BaseTransfer {
         }
       }
 
-      if (this.task.status !== TaskStatus.Processing && this.task.status !== TaskStatus.Idle) {
-        // Check cancellation during hash
-        return;
-      }
+      // if (this.task.status !== TaskStatus.Processing && this.task.status !== TaskStatus.Idle) {
+      //   // Check cancellation during hash
+      //   return;
+      // }
       this.setStatus(TaskStatus.Transferring);
 
       // Hook: afterStart

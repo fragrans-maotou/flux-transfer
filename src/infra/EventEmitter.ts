@@ -1,92 +1,92 @@
 /**
- * Event Emitter - Generic publish-subscribe pattern implementation
+ * 事件发射器 - 通用发布-订阅模式实现
  */
 
 type EventListener = (...args: unknown[]) => void;
 type UnsubscribeFn = () => void;
 
 /**
- * EventEmitter class for implementing publish-subscribe pattern
+ * 事件发射器 - 实现发布-订阅模式
  */
 export class EventEmitter {
   private events: Map<string, Set<EventListener>> = new Map();
 
   /**
-   * Subscribe to an event
-   * @param event Event name
-   * @param listener Event listener function
-   * @returns Unsubscribe function
+   * 订阅事件
+   * @param eventName 事件名称
+   * @param listener 事件监听函数
+   * @returns 取消订阅函数
    */
-  on(event: string, listener: EventListener): UnsubscribeFn {
-    if (!this.events.has(event)) {
-      this.events.set(event, new Set());
+  on(eventName: string, listener: EventListener): UnsubscribeFn {
+    if (!this.events.has(eventName)) {
+      this.events.set(eventName, new Set());
     }
 
-    const listeners = this.events.get(event)!;
+    const listeners = this.events.get(eventName)!;
     listeners.add(listener);
 
-    // Return unsubscribe function to prevent memory leaks
+    // 返回取消订阅函数，防止内存泄漏
     return () => {
-      this.off(event, listener);
+      this.off(eventName, listener);
     };
   }
 
   /**
-   * Subscribe to an event (one-time only)
-   * @param event Event name
-   * @param listener Event listener function
-   * @returns Unsubscribe function
+   * 订阅事件（仅一次）
+   * @param eventName 事件名称
+   * @param listener 事件监听函数
+   * @returns 取消订阅函数
    */
-  once(event: string, listener: EventListener): UnsubscribeFn {
+  once(eventName: string, listener: EventListener): UnsubscribeFn {
     const onceListener: EventListener = (...args: unknown[]) => {
-      this.off(event, onceListener);
+      this.off(eventName, onceListener);
       listener(...args);
     };
 
-    return this.on(event, onceListener);
+    return this.on(eventName, onceListener);
   }
 
   /**
-   * Unsubscribe from an event
-   * @param event Event name
-   * @param listener Event listener function to remove
+   * 取消订阅事件
+   * @param eventName 事件名称
+   * @param listener 事件监听函数
    */
-  off(event: string, listener: EventListener): void {
-    const listeners = this.events.get(event);
+  off(eventName: string, listener: EventListener): void {
+    const listeners = this.events.get(eventName);
     if (listeners) {
       listeners.delete(listener);
-      // Clean up empty event set
+      // 清理空事件集合
       if (listeners.size === 0) {
-        this.events.delete(event);
+        this.events.delete(eventName);
       }
     }
   }
 
   /**
-   * Emit an event
-   * @param event Event name
-   * @param args Arguments to pass to listeners
+   * 发射事件
+   * @param eventName 事件名称
+   * @param args 传递给监听器的参数
    */
-  emit(event: string, ...args: unknown[]): void {
-    const listeners = this.events.get(event);
+  emit(eventName: string, ...args: unknown[]): void {
+    const listeners = this.events.get(eventName);
     if (!listeners || listeners.size === 0) {
       return;
     }
 
-    // Execute listeners with error isolation
+    // 执行监听器，隔离错误
     listeners.forEach((listener) => {
       try {
         listener(...args);
       } catch (error) {
-        // Error isolation: one listener's error doesn't affect others
-        console.error(`Error in event listener for "${event}":`, error);
+        // 错误隔离：一个监听器的错误不影响其他监听器
+        console.error(`Error in event listener for "${eventName}":`, error);
 
-        // Emit error event for debugging
+        // 发射错误事件用于调试
         const errorListeners = this.events.get('error');
         if (errorListeners && errorListeners.size > 0) {
           errorListeners.forEach((errorListener) => {
             try {
-              errorListener(error, event);
+              errorListener(error, eventName);
             } catch (e) {
               console.error('Error in error listener:', e);
             }
@@ -97,30 +97,30 @@ export class EventEmitter {
   }
 
   /**
-   * Remove all listeners for a specific event or all events
-   * @param event Optional event name. If not provided, removes all listeners
+   * 移除特定事件的所有监听器或所有事件的所有监听器
+   * @param eventName 可选事件名称。如果不提供，则移除所有监听器
    */
-  removeAllListeners(event?: string): void {
-    if (event) {
-      this.events.delete(event);
+  removeAllListeners(eventName?: string): void {
+    if (eventName) {
+      this.events.delete(eventName);
     } else {
       this.events.clear();
     }
   }
 
   /**
-   * Get listener count for a specific event
-   * @param event Event name
-   * @returns Number of listeners
+   * 获取特定事件的监听器数量
+   * @param eventName 事件名称
+   * @returns 监听器数量
    */
-  listenerCount(event: string): number {
-    const listeners = this.events.get(event);
+  listenerCount(eventName: string): number {
+    const listeners = this.events.get(eventName);
     return listeners ? listeners.size : 0;
   }
 
   /**
-   * Get all event names with listeners
-   * @returns Array of event names
+   * 获取所有监听器的事件名称
+   * @returns 事件名称数组
    */
   eventNames(): string[] {
     return Array.from(this.events.keys());

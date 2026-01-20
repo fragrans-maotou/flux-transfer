@@ -1,280 +1,293 @@
 /**
- * Core Types and Interfaces for Flux Transfer SDK
+ * Flux Transfer SDK 核心类型和接口
  */
 
 /**
- * Task status enumeration
+ * 任务状态枚举
  */
 export enum TaskStatus {
-  /** Task is created but not started */
+  /** 任务创建但未开始 */
   Idle = 'idle',
-  /** Task is being prepared (e.g., calculating hash, checking file size) */
+  /** 任务正在准备（例如，计算哈希，检查文件大小） */
   Processing = 'processing',
-  /** Task is actively transferring data */
+  /** 任务正在传输数据 */
   Transferring = 'transferring',
-  /** Task is paused by user */
+  /** 任务暂停 */
   Paused = 'paused',
-  /** Task completed successfully */
+  /** 任务完成 */
   Completed = 'completed',
-  /** Task failed with error */
+  /** 任务失败 */
   Failed = 'failed',
-  /** Task was cancelled by user */
+  /** 任务被用户取消 */
   Cancelled = 'cancelled',
 }
 
 /**
- * Error code enumeration
+ * 传输类型枚举
+ */
+export enum TransferType {
+  /** 上传 */
+  Upload = 'upload',
+  /** 下载 */
+  Download = 'download',
+}
+
+
+/**
+ * 错误代码枚举
  */
 export enum ErrorCode {
-  /** Network timeout error */
+  /** 网络超时 */
   NetworkTimeout = 'NETWORK_TIMEOUT',
-  /** Network disconnected */
+  /** 网络断开 */
   NetworkOffline = 'NETWORK_OFFLINE',
-  /** Server error (5xx) */
+  /** 服务器错误（5xx） */
   ServerError = 'SERVER_ERROR',
-  /** Client error (4xx) */
+  /** 客户端错误（4xx） */
   ClientError = 'CLIENT_ERROR',
-  /** Authentication failed */
+  /** 认证失败 */
   AuthenticationFailed = 'AUTHENTICATION_FAILED',
-  /** File not found */
+  /** 文件未找到 */
   FileNotFound = 'FILE_NOT_FOUND',
-  /** File too large */
+  /** 文件太大 */
   FileTooLarge = 'FILE_TOO_LARGE',
-  /** Unsupported file type */
+  /** 不支持的文件类型 */
   UnsupportedFileType = 'UNSUPPORTED_FILE_TYPE',
-  /** Storage quota exceeded */
+  /** 存储配额已用尽 */
   QuotaExceeded = 'QUOTA_EXCEEDED',
-  /** Hash calculation failed */
+  /** 哈希计算失败 */
   HashCalculationFailed = 'HASH_CALCULATION_FAILED',
-  /** Chunk upload failed */
+  /** 分块上传失败 */
   ChunkUploadFailed = 'CHUNK_UPLOAD_FAILED',
-  /** Chunk merge failed */
+  /** 分块合并失败 */
   ChunkMergeFailed = 'CHUNK_MERGE_FAILED',
-  /** Browser not supported */
+  /** 浏览器不支持 */
   BrowserNotSupported = 'BROWSER_NOT_SUPPORTED',
-  /** Unknown error */
+  /** 未知错误 */
   Unknown = 'UNKNOWN',
 }
 
 /**
- * Transfer error interface
+ * 传输错误接口
  */
 export interface ITransferError {
-  /** Error code */
+  /** 错误代码 */
   code: ErrorCode;
-  /** Error message */
+  /** 错误消息 */
   message: string;
-  /** Original error object */
+  /** 原始错误对象 */
   originalError?: Error;
-  /** Timestamp when error occurred */
+  /** 错误发生的时间戳 */
   timestamp: number;
-  /** Whether the error is retryable */
+  /** 是否可重试 */
   retryable: boolean;
 }
 
 /**
- * Transfer checkpoint for resume capability
+ * 用于断点续传的传输检查点
  */
 export interface ITransferCheckpoint {
-  /** Task ID */
+  /** 任务ID */
   taskId: string;
-  /** Uploaded chunks (for upload) or downloaded bytes (for download) */
+  /** 已上传的分块（上传）或已下载的字节数（下载） */
   completedChunks?: number[];
-  /** Total transferred bytes */
+  /** 总传输字节数 */
   transferredBytes: number;
-  /** File hash (for verification) */
+  /** 文件哈希（用于验证） */
   fileHash?: string;
-  /** Last update timestamp */
+  /** 最后更新时间戳 */
   timestamp: number;
-  /** File fingerprint (md5(name+size+mtime+path)) */
+  /** 文件指纹（md5(name+size+mtime+path)） */
   fingerprint?: string;
-  /** File name */
+  /** 文件名 */
   fileName?: string;
-  /** File size */
+  /** 文件大小 */
   fileSize?: number;
-  /** File last modified timestamp */
+  /** 文件最后修改时间戳 */
   lastModified?: number;
-  /** File relative path */
+  /** 文件相对路径 */
   path?: string;
-  /** File object (if supported by storage) */
+  /** 文件对象（如果存储支持） */
   file?: File;
-  /** Chunk layout for dynamic chunking */
+  /** 分块布局（用于动态分块） */
   chunkLayout?: { index: number; start: number; end: number }[];
-  /** Additional metadata */
+  /** 附加元数据 */
   metadata?: Record<string, unknown>;
 }
 
 /**
- * Transfer task interface
+ * 传输任务接口
  */
 export interface ITransferTask {
-  /** Unique task ID */
+  /** 任务ID */
   id: string;
-  /** Task status */
+  /** 任务状态 */
   status: TaskStatus;
-  /** File name */
+  /** 文件名 */
   fileName: string;
-  /** File size in bytes */
+  /** 文件大小 */
   fileSize: number;
-  /** File type (MIME type) */
+  /** 文件类型（MIME类型） */
   fileType: string;
-  /** Relative path (for folder uploads) */
+  /** 相对路径（用于文件夹上传） */
   path?: string;
-  /** Transfer progress (0-100) */
+  /** 传输进度（0-100） */
   progress: number;
-  /** Transfer speed in bytes per second */
+  /** 传输速度（字节/秒） */
   speed: number;
-  /** Remaining time in seconds */
+  /** 剩余时间（秒） */
   remainingTime: number;
-  /** Error information if failed */
+  /** 错误信息（如果失败） */
   error?: ITransferError;
-  /** Checkpoint for resume */
+  /** 恢复检查点 */
   checkpoint?: ITransferCheckpoint;
-  /** Creation timestamp */
+  /** 创建时间戳 */
   createdAt: number;
-  /** Last update timestamp */
+  /** 最后更新时间戳 */
   updatedAt: number;
-  /** Custom metadata */
+  /** 自定义元数据 */
   metadata?: Record<string, unknown>;
-  /** Group ID for batch tasks */
+  /** 批量任务ID */
   groupId?: string;
-  /** File hash */
+  /** 文件哈希 */
   hash?: string;
+  /** 传输类型（上传/下载） */
+  transferType?: TransferType;
 }
 
 /**
- * Network request configuration
+ * 网络请求配置
  */
 export interface INetworkRequestConfig {
-  /** Request URL */
+  /** 请求 URL */
   url: string;
-  /** HTTP method */
+  /** HTTP 方法 */
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  /** Request headers */
+  /** 请求头 */
   headers?: Record<string, string>;
-  /** Request body */
+  /** 请求体 */
   body?: Blob | FormData | string | ArrayBuffer;
-  /** Request timeout in milliseconds */
+  /** 请求超时时间（毫秒） */
   timeout?: number;
-  /** Whether to include credentials */
+  /** 是否包含凭据 */
   withCredentials?: boolean;
-  /** Progress callback */
+  /** 进度回调 */
   onProgress?: (loaded: number, total: number) => void;
-  /** Response type */
+  /** 响应类型 */
   responseType?: 'json' | 'text' | 'blob' | 'arraybuffer';
-  /** Abort signal for cancellation */
+  /** 用于取消请求的 Abort 信号 */
   signal?: AbortSignal;
 }
 
 /**
- * Network response interface
+ * 网络响应接口
  */
 export interface INetworkResponse<T = unknown> {
-  /** Response data */
+  /** 响应数据 */
   data: T;
-  /** Response status code */
+  /** 响应状态码 */
   status: number;
-  /** Response status text */
+  /** 响应状态文本 */
   statusText: string;
-  /** Response headers */
+  /** 响应头 */
   headers: Record<string, string>;
 }
 
 /**
- * Network adapter interface
+ * 网络适配器接口
  */
 export interface INetworkAdapter {
   /**
-   * Execute network request
-   * @param config Request configuration
-   * @returns Promise resolving to response
+   * 执行网络请求
+   * @param config 请求配置
+   * @returns 返回响应的 Promise
    */
   request<T = unknown>(config: INetworkRequestConfig): Promise<INetworkResponse<T>>;
 
   /**
-   * Abort ongoing request
-   * @param requestId Optional request ID to abort specific request
+   * 中止正在进行的请求
+   * @param requestId 可选的请求 ID，用于中止特定请求
    */
   abort(requestId?: string): void;
 }
 
 /**
- * Storage adapter interface for persistence
+ * 用于持久化的存储适配器接口
  */
 export interface IStorageAdapter {
   /**
-   * Get value by key
-   * @param key Storage key
-   * @returns Promise resolving to stored value or null
+   * 根据键获取值
+   * @param key 存储键
+   * @returns 返回存储值或 null 的 Promise
    */
   get<T = unknown>(key: string): Promise<T | null>;
 
   /**
-   * Set value by key
-   * @param key Storage key
-   * @param value Value to store
-   * @returns Promise resolving when complete
+   * 根据键设置值
+   * @param key 存储键
+   * @param value 要存储的值
+   * @returns 完成时的 Promise
    */
   set<T = unknown>(key: string, value: T): Promise<void>;
 
   /**
-   * Remove value by key
-   * @param key Storage key
-   * @returns Promise resolving when complete
+   * 根据键移除值
+   * @param key 存储键
+   * @returns 完成时的 Promise
    */
   remove(key: string): Promise<void>;
 
   /**
-   * Clear all stored values
-   * @returns Promise resolving when complete
+   * 清除所有存储的值
+   * @returns 完成时的 Promise
    */
   clear(): Promise<void>;
 
   /**
-   * Get all keys
-   * @returns Promise resolving to array of keys
+   * 获取所有键
+   * @returns 返回键数组的 Promise
    */
   keys(): Promise<string[]>;
 }
 
 /**
- * SDK configuration interface
+ * SDK 配置接口 
  */
 export interface ISDKConfig {
-  /** Maximum concurrent tasks */
+  /** 最大并发任务数 */
   maxConcurrent?: number;
-  /** Chunk size for file upload in bytes (default: 5MB) */
+  /** 文件上传分片大小（默认：5MB） */
   chunkSize?: number;
-  /** Maximum retry attempts */
+  /** 最大重试次数 */
   maxRetries?: number;
-  /** Retry delay in milliseconds */
+  /** 重试延迟时间（毫秒） */
   retryDelay?: number;
-  /** Request timeout in milliseconds */
+  /** 请求超时时间（毫秒） */
   timeout?: number;
-  /** Whether to enable auto-retry on failure */
+  /** 是否启用自动重试 */
   autoRetry?: boolean;
-  /** Whether to enable checkpoint/resume */
+  /** 是否启用检查点/恢复 */
   enableCheckpoint?: boolean;
-  /** Storage adapter for checkpoint persistence */
+  /** 用于检查点持久化的存储适配器 */
   storageAdapter?: IStorageAdapter;
-  /** Network adapter for HTTP requests */
+  /** 用于 HTTP 请求的网络适配器 */
   networkAdapter?: INetworkAdapter;
-  /** Custom headers for all requests */
+  /** 自定义请求头 */
   headers?: Record<string, string>;
-  /** Base URL for API endpoints */
+  /** API 端点的基础 URL */
   baseURL?: string;
-  /** Whether to calculate file hash */
+  /** 是否计算文件哈希 */
   enableHash?: boolean;
-  /** Maximum file size in bytes (0 = unlimited) */
+  /** 最大文件大小（字节，0 表示不限制） */
   maxFileSize?: number;
-  /** Allowed file types (MIME types or extensions) */
+  /** 允许的文件类型（MIME 类型或扩展名） */
   allowedFileTypes?: string[];
-  /** Plugins for SDK extension */
+  /** 用于 SDK 扩展的插件 */
   plugins?: import('./plugin/types').IPlugin[];
 }
 
 /**
- * Default SDK configuration
+ * 默认 SDK 配置
  */
 export const DEFAULT_SDK_CONFIG: Required<Omit<ISDKConfig, 'storageAdapter' | 'networkAdapter' | 'allowedFileTypes' | 'plugins'>> = {
   maxConcurrent: 3,
@@ -291,20 +304,20 @@ export const DEFAULT_SDK_CONFIG: Required<Omit<ISDKConfig, 'storageAdapter' | 'n
 };
 
 /**
- * Validate SDK configuration
- * @param config User-provided configuration
- * @returns Validated and merged configuration
- * @throws Error if configuration is invalid
+ * 验证 SDK 配置
+ * @param config 用户提供的配置
+ * @returns 验证并合并后的配置
+ * @throws 如果配置无效则抛出错误
  */
 export function validateConfig(config: ISDKConfig = {}): ISDKConfig {
   const merged = { ...DEFAULT_SDK_CONFIG, ...config };
 
-  // Validate maxConcurrent
+  // 验证 maxConcurrent
   if (merged.maxConcurrent < 1) {
     throw new Error('maxConcurrent must be at least 1');
   }
 
-  // Validate chunkSize
+  // 验证 chunkSize
   if (merged.chunkSize < 1024) {
     throw new Error('chunkSize must be at least 1KB');
   }
@@ -313,22 +326,22 @@ export function validateConfig(config: ISDKConfig = {}): ISDKConfig {
     throw new Error('chunkSize must not exceed 100MB');
   }
 
-  // Validate maxRetries
+  // 验证 maxRetries
   if (merged.maxRetries < 0) {
     throw new Error('maxRetries must be non-negative');
   }
 
-  // Validate retryDelay
+  // 验证 retryDelay
   if (merged.retryDelay < 0) {
     throw new Error('retryDelay must be non-negative');
   }
 
-  // Validate timeout
+  // 验证 timeout
   if (merged.timeout < 1000) {
     throw new Error('timeout must be at least 1000ms');
   }
 
-  // Validate maxFileSize
+  // 验证 maxFileSize
   if (merged.maxFileSize < 0) {
     throw new Error('maxFileSize must be non-negative');
   }
@@ -337,7 +350,7 @@ export function validateConfig(config: ISDKConfig = {}): ISDKConfig {
 }
 
 /**
- * Event types for transfer tasks
+ * 传输任务的事件类型
  */
 export type TransferEventType =
   | 'statusChange'
@@ -349,15 +362,15 @@ export type TransferEventType =
   | 'resumed';
 
 /**
- * Event data interface
+ * 事件数据接口
  */
 export interface ITransferEventData {
-  /** Task ID */
+  /** 任务 ID */
   taskId: string;
-  /** Event type */
+  /** 事件类型 */
   type: TransferEventType;
-  /** Event payload */
+  /** 事件负载 */
   payload?: unknown;
-  /** Event timestamp */
+  /** 事件时间戳 */
   timestamp: number;
 }

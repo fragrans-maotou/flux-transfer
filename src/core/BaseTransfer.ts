@@ -1,6 +1,6 @@
 /**
- * Base Transfer Class
- * Provides common functionality for upload and download tasks
+ * 基础传输类
+ * 提供上传和下载任务的通用功能
  */
 
 import { EventEmitter } from '../infra/EventEmitter';
@@ -16,7 +16,7 @@ import type {
 import { TaskStatus as TaskStatusEnum } from './types';
 
 /**
- * Abstract base class for file transfer operations
+ * 抽象基类，用于文件传输操作
  */
 export abstract class BaseTransfer extends EventEmitter {
   protected task: ITransferTask;
@@ -35,34 +35,34 @@ export abstract class BaseTransfer extends EventEmitter {
   }
 
   /**
-   * Start the transfer
+   * 开始传输
    */
   abstract start(): Promise<void>;
 
   /**
-   * Pause the transfer
+   * 暂停传输
    */
   abstract pause(): void;
 
   /**
-   * Resume the transfer
+   * 恢复传输
    */
   abstract resume(): Promise<void>;
 
   /**
-   * Cancel the transfer
+   * 取消传输
    */
   abstract cancel(): void;
 
   /**
-   * Get current task state
+   * 获取当前任务状态
    */
   getTask(): Readonly<ITransferTask> {
     return { ...this.task };
   }
 
   /**
-   * Update task status and trigger events
+   * 更新任务状态并触发事件
    */
   protected setStatus(status: TaskStatus): void {
     if (this.task.status === status) {
@@ -73,7 +73,7 @@ export abstract class BaseTransfer extends EventEmitter {
     this.task.status = status;
     this.task.updatedAt = Date.now();
 
-    // Emit status change event
+    // 发射状态变化事件
     this.emit('statusChange', {
       taskId: this.task.id,
       oldStatus,
@@ -81,7 +81,7 @@ export abstract class BaseTransfer extends EventEmitter {
       timestamp: this.task.updatedAt,
     });
 
-    // Emit specific status events
+    // 发射特定状态事件
     if (status === TaskStatusEnum.Completed) {
       this.emit('completed', this.task);
     } else if (status === TaskStatusEnum.Failed) {
@@ -94,7 +94,7 @@ export abstract class BaseTransfer extends EventEmitter {
       this.emit('resumed', this.task);
     }
 
-    // Auto-save checkpoint on status change
+    // 自动保存检查点
     if (this.config.enableCheckpoint && this.storageAdapter) {
       this.saveCheckpoint().catch((error) => {
         console.error('Failed to save checkpoint:', error);
@@ -204,7 +204,7 @@ export abstract class BaseTransfer extends EventEmitter {
   }
 
   /**
-   * Save checkpoint for resume capability
+   * 保存检查点，用于恢复
    */
   protected async saveCheckpoint(): Promise<void> {
     if (!this.storageAdapter || !this.config.enableCheckpoint) {
@@ -223,7 +223,7 @@ export abstract class BaseTransfer extends EventEmitter {
   }
 
   /**
-   * Load checkpoint from storage
+   * 加载检查点，用于恢复
    */
   protected async loadCheckpoint(): Promise<ITransferCheckpoint | null> {
     if (!this.storageAdapter || !this.config.enableCheckpoint) {
