@@ -1,5 +1,7 @@
 import { Uploader, type IUploadConfig } from './Uploader';
-import { TaskStatus, type ITransferTask } from './types';
+import { Downloader, type IDownloadConfig } from './Downloader';
+import { BaseTransfer } from './BaseTransfer';
+import { TaskStatus, TransferType, type ITransferTask, type ISDKConfig } from './types';
 import { TaskQueue } from './TaskQueue';
 import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
@@ -9,10 +11,10 @@ import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
  */
 export class TransferManager {
   private queue: TaskQueue;
-  private tasks: Map<string, Uploader> = new Map();
-  private config: IUploadConfig;
+  private tasks: Map<string, BaseTransfer> = new Map();
+  private config: ISDKConfig;
 
-  constructor(config: IUploadConfig = { maxConcurrent: 3 }) {
+  constructor(config: ISDKConfig = { maxConcurrent: 3 }) {
     this.config = config;
     this.queue = new TaskQueue(config.maxConcurrent || 3);
 
@@ -47,6 +49,7 @@ export class TransferManager {
       fileType: file.type || 'application/octet-stream',
       path: (file as any).webkitRelativePath || undefined,
       groupId,
+      transferType: TransferType.Upload,
       progress: 0,
       speed: 0,
       remainingTime: 0,
@@ -66,6 +69,56 @@ export class TransferManager {
   }
 
   /**
+   * Create a downloader for a URL
+   * @param url URL to download
+   * @param config Download configuration
+   * @param groupId Optional group ID
+   * @returns Downloader instance
+   */
+  createDownloader(url: string, config: IDownloadConfig, groupId?: string): Downloader {
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // Extract filename from URL
+    const fileName = config.saveAs || this.extractFileNameFromUrl(url);
+    
+    const task: ITransferTask = {
+      id: taskId,
+      status: TaskStatus.Idle,
+      fileName,
+      fileSize: 0, // Will be determined during download
+      fileType: 'application/octet-stream',
+      groupId,
+      transferType: TransferType.Download,
+      progress: 0,
+      speed: 0,
+      remainingTime: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // Merge manager config with task config
+    const finalConfig = { ...this.config, ...config };
+    const downloader = new Downloader(task, url, finalConfig);
+    this.tasks.set(taskId, downloader);
+
+    return downloader;
+  }
+
+  /**
+   * Extract file name from URL
+   */
+  private extractFileNameFromUrl(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const fileName = pathname.substring(pathname.lastIndexOf('/') + 1);
+      return fileName || 'download';
+    } catch {
+      return 'download';
+    }
+  }
+
+  /**
    * Add multiple upload tasks to queue and start automatically
    * @param files List of files (from input or array)
    * @param config Upload configuration
@@ -82,9 +135,32 @@ export class TransferManager {
   }
 
   /**
-   * Get uploader by task ID
+   * Add multiple download tasks to queue and start automatically
+   * @param urls List of URLs to download
+   * @param config Download configuration
+   * @param groupId Optional group ID
+   * @returns Array of Downloader instances
    */
-  getUploader(taskId: string): Uploader | undefined {
+  downloadBatch(urls: string[], config: IDownloadConfig, groupId?: string): Downloader[] {
+    return urls.map(url => {
+      const downloader = this.createDownloader(url, config, groupId);
+      this.queue.enqueue(downloader);
+      return downloader;
+    });
+  }
+
+  /**
+   * Get transfer task by task ID (uploader or downloader)
+   */
+  getTask(taskId: string): BaseTransfer | undefined {
+    return this.tasks.get(taskId);
+  }
+
+  /**
+   * Get uploader by task ID
+   * @deprecated Use getTask() instead
+   */
+  getUploader(taskId: string): BaseTransfer | undefined {
     return this.tasks.get(taskId);
   }
 

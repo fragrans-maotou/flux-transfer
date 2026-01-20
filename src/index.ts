@@ -7,6 +7,7 @@
 export * from './core/types';
 export { BaseTransfer } from './core/BaseTransfer';
 export { Uploader, type IUploadConfig } from './core/Uploader';
+export { Downloader, type IDownloadConfig } from './core/Downloader';
 export { TaskQueue, TaskPriority } from './core/TaskQueue';
 export { TransferManager } from './core/TransferManager';
 
