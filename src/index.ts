@@ -15,10 +15,26 @@ export { TransferManager } from './core/TransferManager';
 export { EventEmitter } from './infra/EventEmitter';
 export { IndexedDBStorage } from './infra/storage/IndexedDBStorage';
 export { FetchAdapter } from './infra/network/FetchAdapter';
+export { XHRAdapter } from './infra/network/XHRAdapter';
+export { NetworkAdapterFactory, type NetworkAdapterType, type INetworkAdapterOptions } from './infra/network/NetworkAdapterFactory';
 export { HashCalculator, type IHashResult, type IHashOptions } from './infra/worker/HashCalculator';
 
 // Uploader utilities
 export { ChunkManager, type IChunk } from './core/uploader/ChunkManager';
+
+// Download strategies
+export {
+  type IDownloadStrategy,
+  type IDownloadStrategyConfig,
+  type IDownloadResult,
+  type IDownloadProgress,
+  type DownloadStrategyType,
+  type IStreamSaverConfig,
+  FetchBlobStrategy,
+  DirectLinkStrategy,
+  StreamSaverStrategy,
+  DownloadStrategyFactory,
+} from './strategies';
 
 // Version
 export const VERSION = '0.1.0';

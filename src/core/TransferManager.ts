@@ -75,17 +75,17 @@ export class TransferManager {
    * @param groupId Optional group ID
    * @returns Downloader instance
    */
-  createDownloader(url: string, config: IDownloadConfig, groupId?: string): Downloader {
+  createDownloader(url: string, config: Omit<IDownloadConfig, 'downloadUrl'>, groupId?: string): Downloader {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    
+
     // Extract filename from URL
-    const fileName = config.saveAs || this.extractFileNameFromUrl(url);
-    
+    const fileName = config.fileName || this.extractFileNameFromUrl(url);
+
     const task: ITransferTask = {
       id: taskId,
       status: TaskStatus.Idle,
       fileName,
-      fileSize: 0, // Will be determined during download
+      fileSize: config.fileSize || 0, // Will be determined during download
       fileType: 'application/octet-stream',
       groupId,
       transferType: TransferType.Download,
@@ -96,9 +96,9 @@ export class TransferManager {
       updatedAt: Date.now(),
     };
 
-    // Merge manager config with task config
-    const finalConfig = { ...this.config, ...config };
-    const downloader = new Downloader(task, url, finalConfig);
+    // Merge manager config with task config, add downloadUrl
+    const finalConfig: IDownloadConfig = { ...this.config, ...config, downloadUrl: url };
+    const downloader = new Downloader(task, finalConfig);
     this.tasks.set(taskId, downloader);
 
     return downloader;
@@ -141,7 +141,7 @@ export class TransferManager {
    * @param groupId Optional group ID
    * @returns Array of Downloader instances
    */
-  downloadBatch(urls: string[], config: IDownloadConfig, groupId?: string): Downloader[] {
+  downloadBatch(urls: string[], config: Omit<IDownloadConfig, 'downloadUrl'>, groupId?: string): Downloader[] {
     return urls.map(url => {
       const downloader = this.createDownloader(url, config, groupId);
       this.queue.enqueue(downloader);

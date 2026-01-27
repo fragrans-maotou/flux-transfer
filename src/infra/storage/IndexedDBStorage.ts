@@ -188,4 +188,155 @@ export class IndexedDBStorage implements IStorageAdapter {
       this.dbPromise = null;
     }
   }
+
+  /**
+   * Get multiple values by keys (batch get)
+   */
+  async getMany<T = unknown>(keys: string[]): Promise<Map<string, T | null>> {
+    const result = new Map<string, T | null>();
+
+    if (keys.length === 0) return result;
+
+    try {
+      const db = await this.getDB();
+
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        let completed = 0;
+
+        for (const key of keys) {
+          const request = store.get(key);
+
+          request.onsuccess = () => {
+            result.set(key, request.result ?? null);
+            completed++;
+            if (completed === keys.length) {
+              resolve(result);
+            }
+          };
+
+          request.onerror = () => {
+            result.set(key, null);
+            completed++;
+            if (completed === keys.length) {
+              resolve(result);
+            }
+          };
+        }
+
+        transaction.onerror = () => {
+          reject(new Error(`Batch get failed: ${transaction.error?.message || 'Unknown error'}`));
+        };
+      });
+    } catch (error) {
+      console.error('Error in batch get:', error);
+      // Return nulls for all keys on error
+      keys.forEach(key => result.set(key, null));
+      return result;
+    }
+  }
+
+  /**
+   * Set multiple key-value pairs (batch set)
+   */
+  async setMany<T = unknown>(entries: Array<{ key: string; value: T }>): Promise<void> {
+    if (entries.length === 0) return;
+
+    const db = await this.getDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+
+      for (const { key, value } of entries) {
+        store.put(value, key);
+      }
+
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(new Error(`Batch set failed: ${transaction.error?.message || 'Unknown error'}`));
+      };
+    });
+  }
+
+  /**
+   * Remove multiple keys (batch remove)
+   */
+  async removeMany(keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+
+    const db = await this.getDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+
+      for (const key of keys) {
+        store.delete(key);
+      }
+
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(new Error(`Batch remove failed: ${transaction.error?.message || 'Unknown error'}`));
+      };
+    });
+  }
+
+  /**
+   * Get all stored data
+   */
+  async getAll<T = unknown>(): Promise<Map<string, T>> {
+    const result = new Map<string, T>();
+
+    try {
+      const db = await this.getDB();
+
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const keysRequest = store.getAllKeys();
+        const valuesRequest = store.getAll();
+
+        let keys: IDBValidKey[] = [];
+        let values: T[] = [];
+        let keysLoaded = false;
+        let valuesLoaded = false;
+
+        const tryResolve = () => {
+          if (keysLoaded && valuesLoaded) {
+            for (let i = 0; i < keys.length; i++) {
+              result.set(String(keys[i]), values[i]);
+            }
+            resolve(result);
+          }
+        };
+
+        keysRequest.onsuccess = () => {
+          keys = keysRequest.result;
+          keysLoaded = true;
+          tryResolve();
+        };
+
+        valuesRequest.onsuccess = () => {
+          values = valuesRequest.result;
+          valuesLoaded = true;
+          tryResolve();
+        };
+
+        transaction.onerror = () => {
+          reject(new Error(`Get all failed: ${transaction.error?.message || 'Unknown error'}`));
+        };
+      });
+    } catch (error) {
+      console.error('Error getting all data:', error);
+      return result;
+    }
+  }
 }

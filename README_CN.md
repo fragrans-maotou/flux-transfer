@@ -24,14 +24,15 @@ npm install flux-transfer
 
 ## 快速开始
 
+### 上传文件
+
 ```typescript
-import { TransferManager, Uploader } from 'flux-transfer';
+import { TransferManager } from 'flux-transfer';
 
 // 1. 初始化管理器
 const manager = new TransferManager({
-  maxConcurrent: 3,    // 最多 3 个并发上传
+  maxConcurrent: 3,       // 最多 3 个并发任务
   enableCheckpoint: true, // 启用持久化 (IndexedDB / LocalStorage)
-  enableHash: true,    // 启用 MD5 校验
 });
 
 // 2. 处理文件输入
@@ -43,33 +44,77 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const uploader = manager.createUploader(files[0], {
     uploadUrl: 'https://api.example.com/upload/chunk',
     mergeUrl: 'https://api.example.com/upload/merge',
+    maxConcurrentChunks: 3, // 分片并发数
   });
 
   // 4. 监听事件
   uploader.on('progress', (data) => {
-    console.log(`进度: ${data.progress}% (${data.speed} bytes/s)`);
+    console.log(`进度: ${data.progress}% | 速度: ${(data.speed / 1024).toFixed(1)} KB/s`);
   });
 
-  uploader.on('completed', () => {
-    console.log('上传完成!');
+  uploader.on('statusChange', ({ status }) => {
+    console.log(`状态变更: ${status}`);
   });
+
+  uploader.on('completed', () => console.log('上传完成!'));
+  uploader.on('error', (err) => console.error('上传失败:', err));
 
   uploader.start();
 });
 
-// 5. 自动恢复 (页面加载时)
+// 批量上传
+const uploaders = manager.uploadBatch(files, {
+  uploadUrl: 'https://api.example.com/upload/chunk',
+  mergeUrl: 'https://api.example.com/upload/merge',
+}, 'batch-group-1');
+```
+
+### 下载文件
+
+```typescript
+import { TransferManager } from 'flux-transfer';
+
+const manager = new TransferManager({ maxConcurrent: 3 });
+
+// 创建下载器
+const downloader = manager.createDownloader('https://example.com/file.zip', {
+  fileName: 'my-file.zip',     // 可选：自定义文件名
+  strategy: 'auto',            // 可选：'auto' | 'fetch-blob' | 'stream-saver' | 'direct-link'
+  enableResume: true,          // 可选：启用断点续传
+});
+
+// 监听事件
+downloader.on('progress', (data) => {
+  console.log(`下载进度: ${data.progress}%`);
+});
+
+downloader.on('completed', () => console.log('下载完成!'));
+
+downloader.start();
+
+// 批量下载
+const downloaders = manager.downloadBatch([
+  'https://example.com/file1.zip',
+  'https://example.com/file2.zip',
+], { strategy: 'auto' }, 'download-group-1');
+```
+
+### 断点续传恢复
+
+```typescript
+// 页面加载时恢复中断的会话
 window.addEventListener('load', async () => {
-    const sessions = await manager.getRecoverableSessions();
-    // 包含已保存 File 对象的会话会在管理器内部自动恢复，
-    // 或者你可以手动恢复它们:
-    /*
-    sessions.forEach(session => {
-        if (session.file) {
-             const uploader = manager.createUploader(session.file, { ...config }, session.groupId);
-             uploader.restoreFromStorage();
-        }
-    });
-    */
+  const sessions = await manager.getRecoverableSessions();
+  console.log(`发现 ${sessions.length} 个可恢复会话`);
+  
+  // 手动恢复
+  for (const session of sessions) {
+    if (session.file) {
+      const uploader = manager.createUploader(session.file, config, session.groupId);
+      await uploader.restoreFromStorage();
+      uploader.resume();
+    }
+  }
 });
 ```
 
@@ -155,12 +200,63 @@ const manager = new TransferManager({
 ## API 参考
 
 ### `TransferManager`
-- `createUploader(file, config)`: 创建新的上传任务。
-- `getRecoverableSessions()`: 返回中断的会话列表。
+
+| 方法 | 描述 |
+|------|------|
+| `createUploader(file, config, groupId?)` | 创建上传任务 |
+| `createDownloader(url, config, groupId?)` | 创建下载任务 |
+| `uploadBatch(files, config, groupId?)` | 批量上传并自动入队 |
+| `downloadBatch(urls, config, groupId?)` | 批量下载并自动入队 |
+| `getTask(taskId)` | 获取任务实例 |
+| `getAllTasks()` | 获取所有任务 |
+| `getTasksByGroup(groupId)` | 获取分组内的任务 |
+| `getGroupStatus(groupId)` | 获取分组状态 |
+| `getRecoverableSessions()` | 获取可恢复的会话 |
 
 ### `Uploader`
-- `start()`: 开始上传 (计算哈希 -> 上传分片 -> 合并)。
-- `pause()`: 暂停上传 (中止当前请求，保存状态)。
-- `resume()`: 恢复上传 (重新加载状态，验证哈希/分片)。
-- `cancel()`: 取消上传并清除检查点。
-- `on(event, callback)`: 订阅事件 (`progress`, `statusChange`, `completed`, `error`)。
+
+| 方法 | 描述 |
+|------|------|
+| `start()` | 开始上传 (计算哈希 → 上传分片 → 合并) |
+| `pause()` | 暂停上传 (中止当前请求，保存状态) |
+| `resume()` | 恢复上传 (重新加载状态，验证哈希/分片) |
+| `cancel()` | 取消上传并清除检查点 |
+| `restoreFromStorage()` | 从存储恢复状态 (不启动上传) |
+| `getTask()` | 获取任务信息 |
+| `on(event, callback)` | 订阅事件 |
+
+### `Downloader`
+
+| 方法 | 描述 |
+|------|------|
+| `start()` | 开始下载 |
+| `pause()` | 暂停下载 |
+| `resume()` | 恢复下载 |
+| `cancel()` | 取消下载并清除检查点 |
+| `getStrategyName()` | 获取当前下载策略名称 |
+| `getDownloadedBytes()` | 获取已下载字节数 |
+| `on(event, callback)` | 订阅事件 |
+
+### 事件
+
+| 事件 | 数据 | 描述 |
+|------|------|------|
+| `progress` | `{ progress, speed, remainingTime }` | 进度更新 |
+| `statusChange` | `{ status, prevStatus, taskId }` | 状态变更 |
+| `completed` | `{ taskId }` | 任务完成 |
+| `error` | `{ code, message, original? }` | 任务失败 |
+
+### 状态枚举 `TaskStatus`
+
+```typescript
+enum TaskStatus {
+  Idle = 'idle',           // 等待中
+  Processing = 'processing', // 处理中 (计算哈希等)
+  Transferring = 'transferring', // 传输中
+  Paused = 'paused',       // 已暂停
+  Completed = 'completed', // 已完成
+  Failed = 'failed',       // 已失败
+  Cancelled = 'cancelled', // 已取消
+}
+```
+

@@ -171,8 +171,10 @@ export interface INetworkRequestConfig {
   timeout?: number;
   /** 是否包含凭据 */
   withCredentials?: boolean;
-  /** 进度回调 */
+  /** 下载进度回调 */
   onProgress?: (loaded: number, total: number) => void;
+  /** 上传进度回调 (XHR only) */
+  onUploadProgress?: (loaded: number, total: number) => void;
   /** 响应类型 */
   responseType?: 'json' | 'text' | 'blob' | 'arraybuffer';
   /** 用于取消请求的 Abort 信号 */
