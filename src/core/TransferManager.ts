@@ -5,10 +5,10 @@
 import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
 import { BaseTransfer } from './BaseTransfer';
-import { Downloader, type IDownloadConfig } from './Downloader';
+import { Downloader, type IDownloadConfig } from './downloader/Downloader';
 import { TaskQueue } from './TaskQueue';
 import { TaskStatus, TransferType, type ISDKConfig, type ITransferTask } from './types';
-import { Uploader, type IUploadConfig } from './Uploader';
+import { Uploader, type IUploadConfig } from './uploader/Uploader';
 
 /**
  * TransferManager - 高级API，用于管理文件传输

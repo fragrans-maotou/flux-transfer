@@ -2,21 +2,21 @@
  * Downloader - 文件下载，支持断点续传和多策略
  */
 
-import { BaseTransfer } from './BaseTransfer';
-import {
-  TaskStatus,
-  ErrorCode,
-  TransferType,
-  type ITransferTask,
-  type ISDKConfig,
-  type ITransferCheckpoint,
-} from './types';
 import {
   DownloadStrategyFactory,
-  type IDownloadStrategy,
   type DownloadStrategyType,
   type IDownloadProgress,
-} from '../strategies';
+  type IDownloadStrategy,
+} from '../../strategies';
+import { BaseTransfer } from '../BaseTransfer';
+import {
+  ErrorCode,
+  TaskStatus,
+  TransferType,
+  type ISDKConfig,
+  type ITransferCheckpoint,
+  type ITransferTask,
+} from '../types';
 
 /**
  * Download configuration interface

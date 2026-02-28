@@ -4,36 +4,44 @@
  */
 
 // Core exports will be added as modules are implemented
-export * from './core/types';
 export { BaseTransfer } from './core/BaseTransfer';
-export { Uploader, type IUploadConfig } from './core/Uploader';
-export { Downloader, type IDownloadConfig } from './core/Downloader';
-export { TaskQueue, TaskPriority } from './core/TaskQueue';
+export { Downloader, type IDownloadConfig } from './core/downloader/Downloader';
+export { TaskPriority, TaskQueue } from './core/TaskQueue';
 export { TransferManager } from './core/TransferManager';
+export * from './core/types';
+export { Uploader, type IUploadConfig } from './core/uploader/Uploader';
 
 // Infrastructure
 export { EventEmitter } from './infra/EventEmitter';
-export { IndexedDBStorage } from './infra/storage/IndexedDBStorage';
 export { FetchAdapter } from './infra/network/FetchAdapter';
+export {
+  NetworkAdapterFactory,
+  type INetworkAdapterOptions,
+  type NetworkAdapterType
+} from './infra/network/NetworkAdapterFactory';
 export { XHRAdapter } from './infra/network/XHRAdapter';
-export { NetworkAdapterFactory, type NetworkAdapterType, type INetworkAdapterOptions } from './infra/network/NetworkAdapterFactory';
-export { HashCalculator, type IHashResult, type IHashOptions } from './infra/worker/HashCalculator';
+export { IndexedDBStorage } from './infra/storage/IndexedDBStorage';
+export {
+  HashCalculator,
+  type IHashOptions,
+  type IHashResult
+} from './infra/worker/HashCalculator';
 
 // Uploader utilities
 export { ChunkManager, type IChunk } from './core/uploader/ChunkManager';
 
 // Download strategies
 export {
+  DirectLinkStrategy,
+  DownloadStrategyFactory,
+  FetchBlobStrategy,
+  StreamSaverStrategy,
+  type DownloadStrategyType,
+  type IDownloadProgress,
+  type IDownloadResult,
   type IDownloadStrategy,
   type IDownloadStrategyConfig,
-  type IDownloadResult,
-  type IDownloadProgress,
-  type DownloadStrategyType,
-  type IStreamSaverConfig,
-  FetchBlobStrategy,
-  DirectLinkStrategy,
-  StreamSaverStrategy,
-  DownloadStrategyFactory,
+  type IStreamSaverConfig
 } from './strategies';
 
 // Version

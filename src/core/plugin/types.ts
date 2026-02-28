@@ -2,7 +2,7 @@
  * Plugin System Interfaces
  */
 import type { INetworkRequestConfig, ITransferTask } from '../types';
-import type { Uploader } from '../Uploader';
+import type { Uploader } from '../uploader/Uploader';
 
 /**
  * Context passed to plugin hooks

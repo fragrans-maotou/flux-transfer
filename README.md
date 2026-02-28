@@ -119,18 +119,32 @@ export class LoggerPlugin implements IPlugin {
 
 ### Using a Plugin
 
-Register plugins in the SDK configuration:
+Register plugins in the SDK configuration.
+
+**Why use Plugins instead of global event listeners?**
+Plugins are ideal for cross-page scenarios. When a user starts an upload on Page A and navigates away, Page A's UI components are destroyed (which would kill local event listeners and cause errors if they try to update the UI). 
+However, Plugins are bound to the `TransferManager` and the specific upload task. They will survive page navigation and execute reliably in the background once the upload completes.
 
 ```typescript
 import { TransferManager } from 'flux-transfer';
-import { LoggerPlugin } from './plugins/LoggerPlugin';
+
+// Example: Safely update business status after user leaves the page
+const SyncRecordPlugin = {
+  name: 'SyncRecordPlugin',
+  onSuccess: async (context) => {
+    // This executes safely in the background even if the UI page is gone
+    console.log(`Task ${context.task.id} finished. Silently notifying backend...`);
+    await fetch('/api/file/notify-update', {
+      method: 'POST',
+      body: JSON.stringify({ fileId: context.task.id, status: 'DONE' })
+    });
+  }
+};
 
 const manager = new TransferManager({
   // ... other config
   plugins: [
-    new LoggerPlugin(),
-    // new S3SignerPlugin(),
-    // new ImageCompressorPlugin()
+    SyncRecordPlugin
   ]
 });
 ```

@@ -166,16 +166,30 @@ export class LoggerPlugin implements IPlugin {
 
 在 SDK 配置中注册插件：
 
+**为什么使用插件而不是全局事件监听？（跨页面上传的最佳实践）**
+当用户在页面 A 发起上传，随后跳转到页面 B 时，页面 A 的 UI 组件会被销毁。如果依赖组件内的事件监听，不仅可能内存泄露，还会因为尝试更新已销毁的 UI 而报错。
+而**插件是直接绑定在底层的传输任务上的**。无论前端路由怎么跳，只要在单页应用内，文件在后台默默传完后，插件内部的代码一定会完美、无感知地自动执行。
+
 ```typescript
 import { TransferManager } from 'flux-transfer';
-import { LoggerPlugin } from './plugins/LoggerPlugin';
+
+// 示例：用户离开页面后，依然能在后台静默调用业务接口
+const SyncRecordPlugin = {
+  name: 'SyncRecordPlugin',
+  onSuccess: async (context) => {
+    // 这里的代码脱离了 UI 组件生命周期，极其安全
+    console.log(`后台静默通知: 任务 ${context.task.id} 上传完毕`);
+    await fetch('/api/file/notify-update', {
+      method: 'POST',
+      body: JSON.stringify({ fileId: context.task.id, status: 'DONE' })
+    });
+  }
+};
 
 const manager = new TransferManager({
   // ... 其他配置
   plugins: [
-    new LoggerPlugin(),
-    // new S3SignerPlugin(),
-    // new ImageCompressorPlugin()
+    SyncRecordPlugin
   ]
 });
 ```
