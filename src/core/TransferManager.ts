@@ -1,10 +1,14 @@
-import { Uploader, type IUploadConfig } from './Uploader';
-import { Downloader, type IDownloadConfig } from './Downloader';
-import { BaseTransfer } from './BaseTransfer';
-import { TaskStatus, TransferType, type ITransferTask, type ISDKConfig } from './types';
-import { TaskQueue } from './TaskQueue';
+/**
+ * 入口方法
+ */
+
 import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
+import { BaseTransfer } from './BaseTransfer';
+import { Downloader, type IDownloadConfig } from './Downloader';
+import { TaskQueue } from './TaskQueue';
+import { TaskStatus, TransferType, type ISDKConfig, type ITransferTask } from './types';
+import { Uploader, type IUploadConfig } from './Uploader';
 
 /**
  * TransferManager - 高级API，用于管理文件传输
@@ -18,13 +22,14 @@ export class TransferManager {
     this.config = config;
     this.queue = new TaskQueue(config.maxConcurrent || 3);
 
-    // Auto-initialize storage adapter if not provided
+    // 自动初始化存储适配器
     if (this.config.enableCheckpoint !== false && !this.config.storageAdapter) {
       this.initDefaultStorage();
     }
   }
 
   private initDefaultStorage(): void {
+    // 采用那种存储方式
     if (typeof window !== 'undefined' && window.indexedDB) {
       this.config.storageAdapter = new IndexedDBStorage();
     } else if (typeof window !== 'undefined' && window.localStorage) {
@@ -33,11 +38,11 @@ export class TransferManager {
   }
 
   /**
-   * Create an uploader for a file
-   * @param file File to upload
-   * @param config Upload configuration
-   * @param groupId Optional group ID
-   * @returns Uploader instance
+   * 创建一个上传器
+   * @param file 文件
+   * @param config 上传配置
+   * @param groupId 可选组ID
+   * @returns Uploader实例
    */
   createUploader(file: File, config: IUploadConfig, groupId?: string): Uploader {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -57,7 +62,7 @@ export class TransferManager {
       updatedAt: Date.now(),
     };
 
-    // Merge manager config with task config
+    // 合并管理器配置和任务配置
     const finalConfig = { ...this.config, ...config };
     const uploader = new Uploader(task, file, finalConfig);
     this.tasks.set(taskId, uploader);
@@ -69,16 +74,16 @@ export class TransferManager {
   }
 
   /**
-   * Create a downloader for a URL
-   * @param url URL to download
-   * @param config Download configuration
-   * @param groupId Optional group ID
-   * @returns Downloader instance
+   * 创建一个下载器
+   * @param url 下载地址
+   * @param config 下载配置
+   * @param groupId 可选组ID
+   * @returns Downloader实例
    */
   createDownloader(url: string, config: Omit<IDownloadConfig, 'downloadUrl'>, groupId?: string): Downloader {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    // Extract filename from URL
+    // 从URL中提取文件名
     const fileName = config.fileName || this.extractFileNameFromUrl(url);
 
     const task: ITransferTask = {
@@ -105,7 +110,7 @@ export class TransferManager {
   }
 
   /**
-   * Extract file name from URL
+   * 从URL中提取文件名
    */
   private extractFileNameFromUrl(url: string): string {
     try {
@@ -119,11 +124,11 @@ export class TransferManager {
   }
 
   /**
-   * Add multiple upload tasks to queue and start automatically
-   * @param files List of files (from input or array)
-   * @param config Upload configuration
-   * @param groupId Optional group ID
-   * @returns Array of Uploader instances
+   * 添加多个上传任务到队列并自动开始
+   * @param files 文件列表（来自输入或数组）
+   * @param config 上传配置
+   * @param groupId 可选组ID
+   * @returns Uploader实例数组
    */
   uploadBatch(files: FileList | File[], config: IUploadConfig, groupId?: string): Uploader[] {
     const fileList = Array.from(files);
@@ -135,11 +140,11 @@ export class TransferManager {
   }
 
   /**
-   * Add multiple download tasks to queue and start automatically
-   * @param urls List of URLs to download
-   * @param config Download configuration
-   * @param groupId Optional group ID
-   * @returns Array of Downloader instances
+   * 添加多个下载任务到队列并自动开始
+   * @param urls 下载地址列表
+   * @param config 下载配置
+   * @param groupId 可选组ID
+   * @returns Downloader实例数组
    */
   downloadBatch(urls: string[], config: Omit<IDownloadConfig, 'downloadUrl'>, groupId?: string): Downloader[] {
     return urls.map(url => {
@@ -150,14 +155,14 @@ export class TransferManager {
   }
 
   /**
-   * Get transfer task by task ID (uploader or downloader)
+   * 根据任务ID获取传输任务（上传器或下载器）
    */
   getTask(taskId: string): BaseTransfer | undefined {
     return this.tasks.get(taskId);
   }
 
   /**
-   * Get uploader by task ID
+   * 根据任务ID获取上传器
    * @deprecated Use getTask() instead
    */
   getUploader(taskId: string): BaseTransfer | undefined {
@@ -165,21 +170,21 @@ export class TransferManager {
   }
 
   /**
-   * Get all tasks
+   * 获取所有任务
    */
   getAllTasks(): ITransferTask[] {
     return Array.from(this.tasks.values()).map(u => u.getTask());
   }
 
   /**
-   * Get tasks by group ID
+   * 获取组ID的任务
    */
   getTasksByGroup(groupId: string): ITransferTask[] {
     return this.getAllTasks().filter(t => t.groupId === groupId);
   }
 
   /**
-   * Get status of a group of tasks
+   * 获取组任务的状态
    */
   getGroupStatus(groupId: string): { total: number, completed: number, progress: number, status: TaskStatus } {
     const tasks = this.getTasksByGroup(groupId);
@@ -206,7 +211,7 @@ export class TransferManager {
   }
 
   /**
-   * Get all recoverable sessions from storage
+   * 获取所有可恢复的会话
    */
   async getRecoverableSessions(): Promise<any[]> {
     if (!this.config.storageAdapter || !this.config.enableCheckpoint) {
