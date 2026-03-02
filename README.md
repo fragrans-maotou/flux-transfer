@@ -162,18 +162,71 @@ export class LoggerPlugin implements IPlugin {
 }
 ```
 
-### Using a Plugin
+### Decoupling Plugins and UI with Global Events
 
-Register plugins in the SDK configuration.
+In real applications (e.g. Vue/React components), it is highly recommended to **write common logic (like authentication, logging) in plugins**, while **binding page UI logic (like refreshing a list) to global events**.
 
-**Why use Plugins instead of global event listeners?**
-Plugins are ideal for cross-page scenarios. When a user starts an upload on Page A and navigates away, Page A's UI components are destroyed (which would kill local event listeners and cause errors if they try to update the UI). 
-However, Plugins are bound to the `TransferManager` and the specific upload task. They will survive page navigation and execute reliably in the background once the upload completes.
+If you pass component references (`this`) into plugins and the user navigates away, it can cause memory leaks or errors. Instead, the underlying `TransferManager` acts as a global `EventEmitter`.
 
 ```typescript
 import { TransferManager } from 'flux-transfer';
 
-// Example: Safely update business status after user leaves the page
+// 1. Define global plugin (e.g. in your main.ts or store)
+const GlobalNotifyPlugin = {
+  name: 'GlobalNotifyPlugin',
+  onProgress(context, progress) {
+    console.log(`[Global] ${context.task.fileName} progress: ${progress}%`);
+  }
+};
+
+const manager = new TransferManager({
+  plugins: [GlobalNotifyPlugin] // Register globally
+});
+
+export default manager;
+```
+
+In your specific page component, listen to events to refresh the UI:
+
+```typescript
+// AnyComponent.vue
+import manager from '@/store/transfer';
+
+export default {
+  created() {
+    // Listen to global completion event
+    this.handleTaskComplete = (task) => {
+      // Check if this task belongs to the current page using groupId
+      if (task.groupId === 'my-page-group') {
+        const group = manager.getGroupStatus(task.groupId);
+        // group includes: { total, completed, failed, progress, isAllCompleted }
+        if (group.isAllCompleted) {
+            this.fetchTableData(); // Refresh the table on this page
+        }
+      }
+    };
+    manager.on('taskCompleted', this.handleTaskComplete);
+  },
+  beforeDestroy() {
+    manager.off('taskCompleted', this.handleTaskComplete); // Safely detach
+  },
+  methods: {
+    uploadFile(file) {
+      // Start upload from component, no need to pass verbose plugin array
+      manager.createUploader(file, { uploadUrl: '/api/upload' }, 'my-page-group').start();
+    }
+  }
+}
+```
+
+### Why use Plugins for Background Tasks?
+
+**Plugins are bound to the underlying transfer tasks**, ignoring frontend routing. Even if the user leaves the page, tasks running in the background will still perfectly and silently execute plugin code (like notifying your backend).
+
+```typescript
+import { TransferManager } from 'flux-transfer';
+
+// Example: Safely notify backend after user leaves the page
 const SyncRecordPlugin = {
   name: 'SyncRecordPlugin',
   onSuccess: async (context) => {
@@ -224,7 +277,8 @@ const manager = new TransferManager({
 | `getTask(taskId)` | Get a task instance by ID |
 | `getAllTasks()` | Get all task snapshots |
 | `getTasksByGroup(groupId)` | Get tasks in a group |
-| `getGroupStatus(groupId)` | Get aggregated group status |
+| `getGroupStatus(groupId)` | Get aggregated group status (returns `{ total, completed, failed, progress, isAllCompleted }`) |
+| `on(event, callback)` | Subscribe to global events (e.g. `taskCompleted`, `taskProgress`) |
 
 ### `Uploader`
 
@@ -250,7 +304,17 @@ const manager = new TransferManager({
 | `getDownloadedBytes()` | Get downloaded bytes count |
 | `on(event, callback)` | Subscribe to events |
 
-### Events
+### Global Events (TransferManager)
+
+| Event | Data | Description |
+|-------|------|-------------|
+| `taskProgress` | `{ taskId, progress, speed, remainingTime }` | Any subtask progress update |
+| `taskStatusChange` | `{ taskId, status, prevStatus }` | Any subtask status change |
+| `taskCompleted` | `ITransferTask` | Any subtask completed |
+| `taskError` | `ITransferTask['error']` | Any subtask failed |
+| `taskCancelled` | `ITransferTask` | Any subtask cancelled |
+
+### Task Events (Uploader/Downloader)
 
 | Event | Data | Description |
 |-------|------|-------------|

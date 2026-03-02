@@ -165,7 +165,37 @@ export default {
     this.manager = new TransferManager({
       maxConcurrent: 2,
       enableCheckpoint: true,
+      // 1. 在这里配置全局插件，不用每个 useUpload 都传
+      plugins: [
+        {
+          name: 'GlobalNotifyPlugin',
+          onProgress(context, progress) {
+            console.log(`[全局插件] ${context.task.fileName} 进度: ${progress}%`);
+          },
+          onError(context, error) {
+            console.error(`[全局插件] ${context.task.fileName} 失败:`, error);
+          },
+          onCancel(context) {
+            console.log(`[全局插件] ${context.task.fileName} 取消`);
+          },
+        }
+      ]
     });
+
+    // 2. 在业务层（不是插件层）监听真正的全局事件，处理业务逻辑
+    this.handleTaskCompleted = (task) => {
+      console.log(`[组件业务] 收到文件完成通知: ${task.fileName}`);
+      if (task.groupId && this.manager) {
+        const group = this.manager.getGroupStatus(task.groupId);
+        // 这个group n个，完成了x个， x/n的进度
+       console.log(`[组件业务] 当前分组: ${task.groupId} 进度: ${group.completed}/${group.total}`);
+        if (group.isAllCompleted) {
+          console.log(`🎉 [组件业务] 所有文件都已上传完成！当前分组: ${task.groupId}`);
+          // fetch('/api/refresh-table', { method: 'POST', body: JSON.stringify({ groupId: task.groupId }) });
+        }
+      }
+    };
+    this.manager.on('taskCompleted', this.handleTaskCompleted);
 
     // 从存储中恢复中断的上传任务
     const restored = await this.manager.restore({ networkAdapter: new FetchAdapter() });
@@ -209,33 +239,8 @@ export default {
           networkAdapter: new FetchAdapter(),
           chunkSize,
           maxConcurrentChunks: 2,
-          plugins: [
-            {
-              name: 'UploadNotifyPlugin',
-              onProgress(context, progress) {
-                console.log(`[${context.task.fileName}] 进度: ${progress}%`);
-              },
-              onSuccess(context) {
-                console.log(`[${context.task.fileName}] 上传完成`);
-
-                // 通过 context.manager 查询分组状态
-                if (context.task.groupId && context.manager) {
-                  const group = context.manager.getGroupStatus(context.task.groupId);
-                  console.log(`分组进度: ${group.completed}/${group.total}`);
-                  if (group.isAllCompleted) {
-                    console.log('🎉 所有文件都已上传完成！可以调用业务接口');
-                    // fetch('/api/notify', { method: 'POST', ... });
-                  }
-                }
-              },
-              onCancel(context) {
-                console.log(`[${context.task.fileName}] 取消上传`);
-              },
-              onError(context, error) {
-                console.error(`[${context.task.fileName}] 失败:`, error);
-              },
-            },
-          ],
+          // 插件和业务逻辑已经移到全局 manager 配置中解耦
+          plugins: [],
         }, 'batch-group-1');
 
         this.uploads.push({

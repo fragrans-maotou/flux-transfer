@@ -2,6 +2,7 @@
  * 入口方法
  */
 
+import { EventEmitter } from '../infra/EventEmitter';
 import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
 import { BaseTransfer } from './BaseTransfer';
@@ -14,12 +15,13 @@ import { Uploader, type IUploadConfig } from './uploader/Uploader';
 /**
  * TransferManager - 高级API，用于管理文件传输
  */
-export class TransferManager {
+export class TransferManager extends EventEmitter {
   private queue: TaskQueue;
   private tasks: Map<string, BaseTransfer> = new Map();
   private config: ISDKConfig;
 
   constructor(config: ISDKConfig = { maxConcurrent: 3 }) {
+    super();
     this.config = config;
     this.queue = new TaskQueue(config.maxConcurrent || 3);
 
@@ -63,13 +65,20 @@ export class TransferManager {
       updatedAt: Date.now(),
     };
 
-    // 合并管理器配置和任务配置
-    const finalConfig = { ...this.config, ...config };
+    // 合并管理器配置和任务配置，特别注意合并 plugins
+    const finalConfig = {
+      ...this.config,
+      ...config,
+      plugins: [...(this.config.plugins || []), ...(config.plugins || [])]
+    };
     const uploader = new Uploader(task, file, finalConfig);
     this.tasks.set(taskId, uploader);
 
     // 注入 manager 引用，供插件访问分组状态
     uploader.setManagerRef(this);
+
+    // 接管子任务事件，向外层广播
+    this.bindTaskEvents(uploader);
 
     return uploader;
   }
@@ -102,10 +111,18 @@ export class TransferManager {
       updatedAt: Date.now(),
     };
 
-    // Merge manager config with task config, add downloadUrl
-    const finalConfig: IDownloadConfig = { ...this.config, ...config, downloadUrl: url };
+    // 合并管理器配置和任务配置，特别注意合并 plugins
+    const finalConfig: IDownloadConfig = {
+      ...this.config,
+      ...config,
+      downloadUrl: url,
+      plugins: [...(this.config.plugins || []), ...(config.plugins || [])]
+    };
     const downloader = new Downloader(task, finalConfig);
     this.tasks.set(taskId, downloader);
+
+    // 接管子任务事件，向外层广播
+    this.bindTaskEvents(downloader);
 
     return downloader;
   }
@@ -168,6 +185,15 @@ export class TransferManager {
    */
   getUploader(taskId: string): BaseTransfer | undefined {
     return this.tasks.get(taskId);
+  }
+
+  // 私有：绑定任务事件
+  private bindTaskEvents(transfer: BaseTransfer): void {
+    transfer.on('statusChange', (data) => this.emit('taskStatusChange', data));
+    transfer.on('progress', (data) => this.emit('taskProgress', data));
+    transfer.on('error', (error) => this.emit('taskError', error));
+    transfer.on('completed', (task) => this.emit('taskCompleted', task));
+    transfer.on('cancelled', (task) => this.emit('taskCancelled', task));
   }
 
   /**

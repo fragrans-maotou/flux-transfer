@@ -235,14 +235,62 @@ export class LoggerPlugin implements IPlugin {
 }
 ```
 
-### 使用插件
+### 使用插件与全局事件解耦
 
-在 SDK 配置中注册插件：
+在实际业务（如 Vue/React 组件）中，强烈建议**将通用逻辑（如加签、日志）写在插件中**，而**将页面 UI 逻辑（如刷新列表）绑定在全局事件上**。
 
-**为什么使用插件而不是全局事件监听？（跨页面上传的最佳实践）**
-当用户在页面 A 发起上传，随后跳转到页面 B 时，页面 A 的 UI 组件会被销毁。如果依赖组件内的事件监听，不仅可能内存泄露，还会因为尝试更新已销毁的 UI 而报错。
-而**插件是直接绑定在底层的传输任务上的**。无论前端路由怎么跳，只要在单页应用内，文件在后台默默传完后，插件内部的代码一定会完美、无感知地自动执行。
+这是因为当用户离开页面时，如果在插件里传了组件的 `this`，会导致内存泄露或报错。而底层的 `TransferManager` 是一个全局的 `EventEmitter`。
 
+```typescript
+import { TransferManager } from 'flux-transfer';
+
+// 1. 定义全局插件 (写在项目入口或 store 中)
+const GlobalNotifyPlugin = {
+  name: 'GlobalNotifyPlugin',
+  onProgress(context, progress) {
+    console.log(`[全局] ${context.task.fileName} 进度: ${progress}%`);
+  }
+};
+
+const manager = new TransferManager({
+  plugins: [GlobalNotifyPlugin] // 全局注册
+});
+
+export default manager;
+```
+
+在具体的页面组件中，通过监听事件来刷新 UI：
+
+```typescript
+// AnyComponent.vue
+import manager from '@/store/transfer';
+
+export default {
+  created() {
+    // 监听全局完成事件
+    this.handleTaskComplete = (task) => {
+      // 通过 groupId 判断是否是本页面的任务
+      if (task.groupId === 'my-page-group') {
+        const group = manager.getGroupStatus(task.groupId);
+        // group 返回: { total, completed, failed, progress, isAllCompleted }
+        if (group.isAllCompleted) {
+          this.fetchTableData(); // 本组上传完毕，刷新本页面的表格
+        }
+      }
+    };
+    manager.on('taskCompleted', this.handleTaskComplete);
+  },
+  beforeDestroy() {
+    manager.off('taskCompleted', this.handleTaskComplete); // 安全卸载
+  },
+  methods: {
+    uploadFile(file) {
+      // 组件内发起上传，无需再传冗长的 plugins 数组
+      manager.createUploader(file, { uploadUrl: '/api/upload' }, 'my-page-group').start();
+    }
+  }
+}
+```
 ```typescript
 import { TransferManager } from 'flux-transfer';
 
@@ -297,7 +345,8 @@ const manager = new TransferManager({
 | `getTask(taskId)` | 获取任务实例 |
 | `getAllTasks()` | 获取所有任务 |
 | `getTasksByGroup(groupId)` | 获取分组内的任务 |
-| `getGroupStatus(groupId)` | 获取分组状态 |
+| `getGroupStatus(groupId)` | 获取分组状态，返回 `{ total, completed, failed, progress, isAllCompleted }` |
+| `on(event, callback)` | 监听全局事件（例如 `taskCompleted`, `taskProgress`） |
 
 ### `Uploader`
 
