@@ -347,6 +347,12 @@ export class Uploader extends BaseTransfer {
   }
 
   private chunkManagerHasAdaptiveSizing(): boolean {
+    // 用户显式设置了 chunkSize (> 0) → 尊重用户的固定分块，禁用自适应
+    // 用户未设置 chunkSize (undefined) 或设为 0 → 启用自适应分块
+    console.log(this.uploadConfig.chunkSize);
+    if (this.uploadConfig.chunkSize && this.uploadConfig.chunkSize > 0) {
+      return false;
+    }
     return !!this.chunkManager && typeof this.chunkManager.resizeRemaining === 'function';
   }
 

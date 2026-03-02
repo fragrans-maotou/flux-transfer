@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/adapters/vue2.ts'],
   format: ['esm', 'cjs'],
   dts: true,
   splitting: false,
@@ -10,6 +10,6 @@ export default defineConfig({
   treeshake: true,
   minify: false,
   outDir: 'dist',
-  external: [],
+  external: ['vue'],
   target: 'es2020',
 });

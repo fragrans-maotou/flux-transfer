@@ -67,7 +67,7 @@ export class ChunkManager {
   }
 
   /**
-   * Resize remaining pending chunks
+   * 重新计算剩余未上传分片的大小
    */
   resizeRemaining(newSize: number): void {
     if (newSize < 1024) return;
@@ -274,7 +274,7 @@ export class ChunkManager {
   }
 
   /**
-   * Restore from checkpoint (mark chunks as completed)
+   * 从检查点恢复 (标记分片为已完成)
    */
   restoreFromCheckpoint(completedIndices: number[]): void {
     completedIndices.forEach((index) => {
