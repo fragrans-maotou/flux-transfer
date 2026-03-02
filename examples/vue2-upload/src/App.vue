@@ -211,23 +211,28 @@ export default {
           maxConcurrentChunks: 2,
           plugins: [
             {
-              name: 'test',
+              name: 'UploadNotifyPlugin',
               onProgress(context, progress) {
-                console.log('progress', progress);
+                console.log(`[${context.task.fileName}] 进度: ${progress}%`);
               },
-              onSuccess(context, result) {
-                // 判断一个集合的多个文件是否全部下载完成
-                console.log("this.manager", this.manager, context);
-                
-                const group = this.manager.getGroupStatus(context.groupId);
-                console.log('successContext', context);
-                if (group.isAllCompleted) {
-                  console.log('所有文件都已下载完成');
+              onSuccess(context) {
+                console.log(`[${context.task.fileName}] 上传完成`);
+
+                // 通过 context.manager 查询分组状态
+                if (context.task.groupId && context.manager) {
+                  const group = context.manager.getGroupStatus(context.task.groupId);
+                  console.log(`分组进度: ${group.completed}/${group.total}`);
+                  if (group.isAllCompleted) {
+                    console.log('🎉 所有文件都已上传完成！可以调用业务接口');
+                    // fetch('/api/notify', { method: 'POST', ... });
+                  }
                 }
-                console.log('success', result);
               },
-              onFailure(context, error) {
-                console.log('failure', error);
+              onCancel(context) {
+                console.log(`[${context.task.fileName}] 取消上传`);
+              },
+              onError(context, error) {
+                console.error(`[${context.task.fileName}] 失败:`, error);
               },
             },
           ],

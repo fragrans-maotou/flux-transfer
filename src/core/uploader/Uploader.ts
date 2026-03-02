@@ -5,7 +5,7 @@
 import { HashCalculator } from '../../infra/worker/HashCalculator';
 import { BaseTransfer } from '../BaseTransfer';
 import { PluginManager } from '../plugin/PluginManager';
-import { IPluginContext } from '../plugin/types';
+import { IPluginContext, ITransferManagerRef } from '../plugin/types';
 import { ErrorCode, TaskStatus, type ISDKConfig, type ITransferTask } from '../types';
 import { ChunkManager } from './ChunkManager';
 
@@ -37,6 +37,7 @@ export class Uploader extends BaseTransfer {
   private uploadingChunks: Set<number> = new Set();
   private abortController: AbortController | null = null;
   private pluginManager: PluginManager;
+  private managerRef?: ITransferManagerRef;
 
   constructor(task: ITransferTask, file: File, config: IUploadConfig) {
     super(task, config);
@@ -49,10 +50,18 @@ export class Uploader extends BaseTransfer {
     this.pluginManager.runHook('onTaskCreated', this.getPluginContext());
   }
 
+  /**
+   * 设置 TransferManager 引用，供插件使用
+   */
+  setManagerRef(ref: ITransferManagerRef): void {
+    this.managerRef = ref;
+  }
+
   private getPluginContext(): IPluginContext {
     return {
       task: this.task,
-      uploader: this
+      uploader: this,
+      manager: this.managerRef,
     };
   }
 
@@ -190,21 +199,37 @@ export class Uploader extends BaseTransfer {
       failedChunks.forEach(chunk => this.chunkManager?.retryChunk(chunk.index));
 
       this.setStatus(TaskStatus.Transferring);
-      await this.uploadChunks();
 
-      // 如果我们不在 Transferring 状态 (例如 Paused, Failed, Cancelled)，则在此停止
-      if ((this.task.status as TaskStatus) !== TaskStatus.Transferring) {
-        return;
-      }
+      try {
+        await this.uploadChunks();
 
-      // 合并分片
-      if (this.chunkManager?.isComplete() && this.uploadConfig.mergeUrl) {
-        await this.mergeChunks();
-      }
+        // 如果我们不在 Transferring 状态 (例如 Paused, Failed, Cancelled)，则在此停止
+        if ((this.task.status as TaskStatus) !== TaskStatus.Transferring) {
+          return;
+        }
 
-      if (this.chunkManager?.isComplete()) {
-        this.setStatus(TaskStatus.Completed);
-        await this.deleteCheckpoint();
+        // 合并分片
+        if (this.chunkManager?.isComplete() && this.uploadConfig.mergeUrl) {
+          await this.mergeChunks();
+        }
+
+        if (this.chunkManager?.isComplete()) {
+          this.setStatus(TaskStatus.Completed);
+          await this.deleteCheckpoint();
+
+          // Hook: onSuccess
+          await this.pluginManager.runHook('onSuccess', this.getPluginContext());
+        }
+      } catch (error) {
+        const transferError = this.createTransferError(
+          ErrorCode.ChunkUploadFailed,
+          error instanceof Error ? error.message : 'Resume upload failed',
+          error instanceof Error ? error : undefined,
+        );
+        this.setError(transferError);
+
+        // Hook: onError
+        await this.pluginManager.runHook('onError', this.getPluginContext(), error);
       }
     }
   }
@@ -212,12 +237,16 @@ export class Uploader extends BaseTransfer {
   /**
    * 取消上传
    */
-  cancel(): void {
+  async cancel(): Promise<void> {
     this.setStatus(TaskStatus.Cancelled);
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
     }
+    // Hook: onCancel
+    await this.pluginManager.runHook('onCancel', this.getPluginContext());
+    // 取消上传，那就删除检查点
+    await this.deleteCheckpoint();
   }
 
   /**

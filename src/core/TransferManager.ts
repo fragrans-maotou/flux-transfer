@@ -6,6 +6,7 @@ import { IndexedDBStorage } from '../infra/storage/IndexedDBStorage';
 import { LocalStorageAdapter } from '../infra/storage/LocalStorageAdapter';
 import { BaseTransfer } from './BaseTransfer';
 import { Downloader, type IDownloadConfig } from './downloader/Downloader';
+import type { IGroupStatus } from './plugin/types';
 import { TaskQueue } from './TaskQueue';
 import { TaskStatus, TransferType, type ISDKConfig, type ITransferTask } from './types';
 import { Uploader, type IUploadConfig } from './uploader/Uploader';
@@ -67,8 +68,8 @@ export class TransferManager {
     const uploader = new Uploader(task, file, finalConfig);
     this.tasks.set(taskId, uploader);
 
-    // If queue is configured, we could auto-enqueue, but for now let's just return it
-    // to give user full control over start/pause/cancel.
+    // 注入 manager 引用，供插件访问分组状态
+    uploader.setManagerRef(this);
 
     return uploader;
   }
@@ -186,28 +187,19 @@ export class TransferManager {
   /**
    * 获取组任务的状态
    */
-  getGroupStatus(groupId: string): { total: number, completed: number, progress: number, status: TaskStatus } {
+  getGroupStatus(groupId: string): IGroupStatus {
     const tasks = this.getTasksByGroup(groupId);
     if (tasks.length === 0) {
-      return { total: 0, completed: 0, progress: 0, status: TaskStatus.Idle };
+      return { total: 0, completed: 0, failed: 0, progress: 0, isAllCompleted: false };
     }
 
     const completed = tasks.filter(t => t.status === TaskStatus.Completed).length;
+    const failed = tasks.filter(t => t.status === TaskStatus.Failed).length;
     const totalProgress = tasks.reduce((sum, t) => sum + t.progress, 0);
     const progress = Math.round(totalProgress / tasks.length);
+    const isAllCompleted = completed === tasks.length;
 
-    let status = TaskStatus.Transferring;
-    if (completed === tasks.length) {
-      status = TaskStatus.Completed;
-    } else if (tasks.some(t => t.status === TaskStatus.Failed)) {
-      status = TaskStatus.Failed;
-    } else if (tasks.every(t => t.status === TaskStatus.Idle)) {
-      status = TaskStatus.Idle;
-    } else if (tasks.every(t => t.status === TaskStatus.Paused)) {
-      status = TaskStatus.Paused;
-    }
-
-    return { total: tasks.length, completed, progress, status };
+    return { total: tasks.length, completed, failed, progress, isAllCompleted };
   }
 
   /**

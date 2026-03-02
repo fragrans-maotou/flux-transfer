@@ -6,6 +6,7 @@
 // Core exports will be added as modules are implemented
 export { BaseTransfer } from './core/BaseTransfer';
 export { Downloader, type IDownloadConfig } from './core/downloader/Downloader';
+export type { IGroupStatus, IPlugin, IPluginContext, ITransferManagerRef } from './core/plugin/types';
 export { TaskPriority, TaskQueue } from './core/TaskQueue';
 export { TransferManager } from './core/TransferManager';
 export * from './core/types';
