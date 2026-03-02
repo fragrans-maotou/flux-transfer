@@ -461,6 +461,15 @@ export class Uploader extends BaseTransfer {
       fileHash: this.task.hash,
       timestamp: Date.now(),
       chunkLayout: this.chunkManager.getChunkLayout ? this.chunkManager.getChunkLayout() : undefined,
+      // 保存上传配置，用于 restore() 恢复时重建 Uploader
+      uploadConfig: {
+        uploadUrl: this.uploadConfig.uploadUrl,
+        mergeUrl: this.uploadConfig.mergeUrl,
+        checkUrl: this.uploadConfig.checkUrl,
+        maxConcurrentChunks: this.uploadConfig.maxConcurrentChunks,
+        fileFieldName: this.uploadConfig.fileFieldName,
+        chunkSize: this.config.chunkSize,
+      },
     };
 
     // 使用指纹作为键

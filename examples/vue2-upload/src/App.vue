@@ -140,7 +140,7 @@
 
 <script>
 import { FetchAdapter, TransferManager } from 'flux-transfer';
-import { useUpload } from 'flux-transfer/vue2';
+import { useUpload, wrapUploader } from 'flux-transfer/vue2';
 
 const CHUNK_SIZE_MAP = {
   '256KB': 256 * 1024,
@@ -161,10 +161,23 @@ export default {
       chunkSizeLabel: '512KB',
     };
   },
-  created() {
+  async created() {
     this.manager = new TransferManager({
       maxConcurrent: 2,
       enableCheckpoint: true,
+    });
+
+    // 从存储中恢复中断的上传任务
+    const restored = await this.manager.restore({ networkAdapter: new FetchAdapter() });
+    restored.forEach(uploader => {
+      const task = uploader.getTask();
+      const ctrl = wrapUploader(uploader);
+      this.uploads.push({
+        fileName: task.fileName,
+        fileSize: task.fileSize,
+        ctrl,
+      });
+      console.log(`恢复: ${task.fileName}, 进度: ${task.progress}%`);
     });
   },
   beforeDestroy() {
@@ -196,7 +209,29 @@ export default {
           networkAdapter: new FetchAdapter(),
           chunkSize,
           maxConcurrentChunks: 2,
-        });
+          plugins: [
+            {
+              name: 'test',
+              onProgress(context, progress) {
+                console.log('progress', progress);
+              },
+              onSuccess(context, result) {
+                // 判断一个集合的多个文件是否全部下载完成
+                console.log("this.manager", this.manager, context);
+                
+                const group = this.manager.getGroupStatus(context.groupId);
+                console.log('successContext', context);
+                if (group.isAllCompleted) {
+                  console.log('所有文件都已下载完成');
+                }
+                console.log('success', result);
+              },
+              onFailure(context, error) {
+                console.log('failure', error);
+              },
+            },
+          ],
+        }, 'batch-group-1');
 
         this.uploads.push({
           fileName: file.name,

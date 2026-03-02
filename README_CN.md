@@ -1,16 +1,19 @@
 # Flux Transfer SDK
 
-一个功能强大、健壮且框架无关的浏览器文件上传 SDK。
+一个功能强大、健壮且框架无关的浏览器文件传输 SDK。
+
+[English](./README.md)
 
 ## 特性
 
 - **健壮的持久化**：自动保存进度到 `IndexedDB`。如果不可用（例如隐私模式），则优雅降级到 `LocalStorage`。
-- **自动恢复**：页面刷新后自动恢复中断的上传会话（包括 `File` 对象），无需用户重新选择文件。
+- **断点续传恢复**：页面刷新后调用 `manager.restore()` 即可恢复中断的上传任务——IndexedDB 可以持久化 `File` 对象，无需用户重新选择文件。
 - **高性能**：
     - **Web Worker 哈希计算**：将 MD5 计算任务卸载到后台 Worker，防止 UI 冻结。
-    - **自适应分片**：根据实时网络速度动态调整分片大小（目标：每片 2 秒），以最大化吞吐量。
+    - **自适应分片**：根据实时网络速度动态调整分片大小（目标：每片 2 秒），以最大化吞吐量。当用户显式设置了 `chunkSize` 时，自适应会被禁用。
 - **智能重试**：实现指数退避算法，增强应对网络波动的能力。
 - **插件系统**：可扩展的架构，允许在不修改核心代码的情况下添加自定义逻辑（如日志记录、鉴权等）。
+- **框架适配器**：提供 Vue 2、Vue 3、React 开箱即用的响应式适配。
 
 ---
 
@@ -27,7 +30,7 @@ npm install flux-transfer
 ### 上传文件
 
 ```typescript
-import { TransferManager } from 'flux-transfer';
+import { TransferManager, FetchAdapter } from 'flux-transfer';
 
 // 1. 初始化管理器
 const manager = new TransferManager({
@@ -44,6 +47,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const uploader = manager.createUploader(files[0], {
     uploadUrl: 'https://api.example.com/upload/chunk',
     mergeUrl: 'https://api.example.com/upload/merge',
+    networkAdapter: new FetchAdapter(),
     maxConcurrentChunks: 3, // 分片并发数
   });
 
@@ -66,6 +70,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 const uploaders = manager.uploadBatch(files, {
   uploadUrl: 'https://api.example.com/upload/chunk',
   mergeUrl: 'https://api.example.com/upload/merge',
+  networkAdapter: new FetchAdapter(),
 }, 'batch-group-1');
 ```
 
@@ -102,21 +107,89 @@ const downloaders = manager.downloadBatch([
 ### 断点续传恢复
 
 ```typescript
-// 页面加载时恢复中断的会话
+// 页面加载时恢复中断的上传
 window.addEventListener('load', async () => {
-  const sessions = await manager.getRecoverableSessions();
-  console.log(`发现 ${sessions.length} 个可恢复会话`);
-  
-  // 手动恢复
-  for (const session of sessions) {
-    if (session.file) {
-      const uploader = manager.createUploader(session.file, config, session.groupId);
-      await uploader.restoreFromStorage();
-      uploader.resume();
-    }
-  }
+  const restored = await manager.restore({
+    // 可选：覆盖配置（如重新指定 networkAdapter）
+    networkAdapter: new FetchAdapter(),
+  });
+
+  console.log(`恢复了 ${restored.length} 个中断任务`);
+
+  restored.forEach(uploader => {
+    const task = uploader.getTask();
+    console.log(`恢复: ${task.fileName}, 进度: ${task.progress}%`);
+    // 恢复后的任务状态为 Paused，由用户决定是否继续
+    uploader.resume();
+  });
 });
 ```
+
+配置合并优先级：`管理器全局配置 < checkpoint 中保存的配置 < configOverrides 参数`
+
+---
+
+## Vue 2 适配器
+
+为 Vue 2 项目提供基于 `Vue.observable()` 的响应式能力。
+
+```javascript
+// main.js - 初始化（只需一次）
+import Vue from 'vue';
+import { setVue } from 'flux-transfer/vue2';
+setVue(Vue);
+```
+
+```javascript
+// 组件中使用
+import { FetchAdapter, TransferManager } from 'flux-transfer';
+import { useUpload, wrapUploader } from 'flux-transfer/vue2';
+
+export default {
+  data() {
+    return { manager: null, uploads: [] };
+  },
+  async created() {
+    this.manager = new TransferManager({ enableCheckpoint: true });
+
+    // 恢复中断的任务
+    const restored = await this.manager.restore({ networkAdapter: new FetchAdapter() });
+    restored.forEach(uploader => {
+      const ctrl = wrapUploader(uploader); // 包装成响应式
+      this.uploads.push({
+        fileName: uploader.getTask().fileName,
+        fileSize: uploader.getTask().fileSize,
+        ctrl,
+      });
+    });
+  },
+  methods: {
+    addFile(file) {
+      // 创建新上传，自动包含响应式 state
+      const ctrl = useUpload(this.manager, file, {
+        uploadUrl: '/api/upload',
+        networkAdapter: new FetchAdapter(),
+      });
+      this.uploads.push({ fileName: file.name, fileSize: file.size, ctrl });
+      ctrl.start();
+    },
+  },
+  beforeDestroy() {
+    this.uploads.forEach(item => item.ctrl.cleanup());
+  },
+};
+```
+
+### Vue 2 适配器 API
+
+| 函数 | 描述 |
+|------|------|
+| `setVue(Vue)` | 注入 Vue 2 构造函数（使用前调用一次） |
+| `useUpload(manager, file, config, groupId?)` | 创建上传器并返回响应式状态 |
+| `useDownload(manager, url, config, groupId?)` | 创建下载器并返回响应式状态 |
+| `wrapUploader(uploader)` | 将已有的 Uploader（如 `restore()` 恢复的）包装为响应式结构 |
+| `useTransferList(manager)` | 所有任务的响应式视图 |
+| `fluxTransferMixin` | Vue mixin，在 `beforeDestroy` 时自动清理 |
 
 ---
 
@@ -187,10 +260,7 @@ const SyncRecordPlugin = {
 };
 
 const manager = new TransferManager({
-  // ... 其他配置
-  plugins: [
-    SyncRecordPlugin
-  ]
+  plugins: [SyncRecordPlugin]
 });
 ```
 
@@ -203,11 +273,12 @@ const manager = new TransferManager({
 - **降级**：`LocalStorage` (同步，仅字符串，有大小限制)。如果 IndexedDB 被阻止（例如无痕模式），会自动启用。
 - **清理**：上传成功（或取消）后，检查点会被**自动删除**，确保不残留陈旧数据。
 
-### 性能优化 V1.5
+### 性能优化
 - **Web Worker**：哈希计算在单独的线程中进行。如果浏览器不支持 Worker，则优雅降级到主线程。
-- **自适应分片**：SDK 会测量上传速度。
-    - 慢速网络 -> 更小的分片 (最小 256KB) -> 更可靠。
-    - 快速网络 -> 更大的分片 (最大 50MB) -> 更少开销。
+- **自适应分片**：SDK 会测量上传速度并动态调整分片大小。
+    - 慢速网络 → 更小的分片 (最小 256KB) → 更可靠。
+    - 快速网络 → 更大的分片 (最大 50MB) → 更少开销。
+    - **注意**：当用户显式设置了 `chunkSize` 时，自适应分片会被禁用，严格按照用户指定的大小分片。
 
 ---
 
@@ -219,13 +290,14 @@ const manager = new TransferManager({
 |------|------|
 | `createUploader(file, config, groupId?)` | 创建上传任务 |
 | `createDownloader(url, config, groupId?)` | 创建下载任务 |
+| `restore(configOverrides?)` | 从存储中恢复中断的上传任务，返回 `Uploader[]`（状态为 Paused） |
+| `getRecoverableSessions()` | 获取存储中的原始检查点数据 |
 | `uploadBatch(files, config, groupId?)` | 批量上传并自动入队 |
 | `downloadBatch(urls, config, groupId?)` | 批量下载并自动入队 |
 | `getTask(taskId)` | 获取任务实例 |
 | `getAllTasks()` | 获取所有任务 |
 | `getTasksByGroup(groupId)` | 获取分组内的任务 |
 | `getGroupStatus(groupId)` | 获取分组状态 |
-| `getRecoverableSessions()` | 获取可恢复的会话 |
 
 ### `Uploader`
 
@@ -235,7 +307,7 @@ const manager = new TransferManager({
 | `pause()` | 暂停上传 (中止当前请求，保存状态) |
 | `resume()` | 恢复上传 (重新加载状态，验证哈希/分片) |
 | `cancel()` | 取消上传并清除检查点 |
-| `restoreFromStorage()` | 从存储恢复状态 (不启动上传) |
+| `restoreFromStorage()` | 从存储恢复进度（内部由 `manager.restore()` 调用） |
 | `getTask()` | 获取任务信息 |
 | `on(event, callback)` | 订阅事件 |
 
@@ -273,4 +345,3 @@ enum TaskStatus {
   Cancelled = 'cancelled', // 已取消
 }
 ```
-

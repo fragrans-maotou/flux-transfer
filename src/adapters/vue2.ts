@@ -250,6 +250,28 @@ export function useUpload(
 ): IUseUploadReturn {
   // 创建 uploader
   const uploader = manager.createUploader(file, config, groupId);
+  return wrapUploader(uploader);
+}
+
+/**
+ * 将已有的 Uploader 实例包装为 Vue 2 响应式结构
+ * 
+ * 适用于从 `manager.restore()` 恢复的 uploader，
+ * 将其包装成和 `useUpload` 相同的响应式返回值。
+ * 
+ * @param uploader - Uploader 实例
+ * @returns 响应式状态和控制方法
+ * 
+ * @example
+ * ```js
+ * const restored = await manager.restore({ networkAdapter });
+ * restored.forEach(uploader => {
+ *   const ctrl = wrapUploader(uploader);
+ *   this.uploads.push({ fileName: uploader.getTask().fileName, ctrl });
+ * });
+ * ```
+ */
+export function wrapUploader(uploader: Uploader): IUseUploadReturn {
   const initialTask = uploader.getTask();
 
   // 使用 Vue.observable 创建响应式状态
@@ -260,10 +282,10 @@ export function useUpload(
     remainingTime: initialTask.remainingTime,
     error: null as ITransferError | null,
     task: { ...initialTask } as ITransferTask | null,
-    isUploading: false,
-    isPaused: false,
-    isCompleted: false,
-    isFailed: false,
+    isUploading: isStatusUploading(initialTask.status),
+    isPaused: isStatusPaused(initialTask.status),
+    isCompleted: isStatusCompleted(initialTask.status),
+    isFailed: isStatusFailed(initialTask.status),
   });
 
   // 事件订阅，收集取消函数

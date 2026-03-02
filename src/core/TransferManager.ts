@@ -235,4 +235,72 @@ export class TransferManager {
       return [];
     }
   }
+
+  /**
+   * 从存储中恢复中断的上传任务
+   * 
+   * 扫描 IndexedDB/LocalStorage 中保存的 checkpoint，
+   * 对包含有效 File 对象的记录重建 Uploader 并恢复进度。
+   * 恢复后的任务状态为 Paused，由用户决定是否 resume()。
+   * 
+   * @param configOverrides - 可选的配置覆盖（如更换 uploadUrl、添加 networkAdapter）
+   * @returns 恢复的 Uploader 数组
+   * 
+   * @example
+   * ```js
+   * const manager = new TransferManager({ enableCheckpoint: true });
+   * 
+   * // 页面加载后恢复中断的任务
+   * const restored = await manager.restore({
+   *   networkAdapter: new FetchAdapter(),
+   * });
+   * 
+   * restored.forEach(uploader => {
+   *   console.log(`恢复: ${uploader.getTask().fileName}, 进度: ${uploader.getTask().progress}%`);
+   *   // 自动继续或由用户决定
+   *   uploader.resume();
+   * });
+   * ```
+   */
+  async restore(configOverrides?: Partial<IUploadConfig>): Promise<Uploader[]> {
+    if (!this.config.storageAdapter || !this.config.enableCheckpoint) {
+      return [];
+    }
+
+    const restored: Uploader[] = [];
+
+    try {
+      const checkpoints = await this.getRecoverableSessions();
+
+      for (const checkpoint of checkpoints) {
+        // 必须含有有效的 File 对象（IndexedDB 可以持久化 File/Blob）
+        if (!checkpoint.file || !(checkpoint.file instanceof File)) {
+          continue;
+        }
+
+        const file: File = checkpoint.file;
+        const savedConfig: IUploadConfig = checkpoint.uploadConfig || {};
+
+        // 合并配置优先级：管理器全局配置 < checkpoint 保存的配置 < 用户覆盖
+        const finalConfig: IUploadConfig = {
+          ...this.config,
+          ...savedConfig,
+          ...configOverrides,
+        };
+
+        // 重建 Uploader
+        const uploader = this.createUploader(file, finalConfig, checkpoint.groupId);
+
+        // 从存储中恢复进度和状态
+        const success = await uploader.restoreFromStorage();
+        if (success) {
+          restored.push(uploader);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to restore sessions:', error);
+    }
+
+    return restored;
+  }
 }

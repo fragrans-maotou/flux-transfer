@@ -2,8 +2,8 @@
  * Plugin Manager
  * Manages plugin registration and hook execution
  */
-import type { IPlugin, IPluginContext } from './types';
 import type { INetworkRequestConfig } from '../types';
+import type { IPlugin, IPluginContext } from './types';
 
 export class PluginManager {
   private plugins: IPlugin[] = [];
