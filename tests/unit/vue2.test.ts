@@ -17,7 +17,7 @@ vi.stubGlobal('Vue', {
 });
 
 // 动态导入 adapter（在 Vue 全局 mock 之后）
-const { useUpload, useDownload, useTransferList, fluxTransferMixin } = await import(
+const { setVue, useUpload, useDownload, useTransferList, fluxTransferMixin } = await import(
   '../../src/adapters/vue2'
 );
 
@@ -26,6 +26,8 @@ describe('Vue 2 Adapter', () => {
   let mockFile: File;
 
   beforeEach(() => {
+    // 注入 mock Vue 实例，使适配器可以使用 Vue.observable
+    setVue({ observable: mockObservable });
     manager = new TransferManager({ maxConcurrent: 3 });
     mockFile = new File(['hello world test content'], 'test.txt', {
       type: 'text/plain',
@@ -255,6 +257,76 @@ describe('Vue 2 Adapter', () => {
 
       expect(state.status).toBe(TaskStatus.Transferring);
       expect(state.isDownloading).toBe(true);
+    });
+
+    it('should have task info in state', () => {
+      const { state } = useDownload(
+        manager,
+        'https://example.com/file.zip',
+        { fileName: 'test-download.zip', fileSize: 1024 * 1024 },
+      );
+
+      expect(state.task).not.toBeNull();
+      expect(state.task!.fileName).toBe('test-download.zip');
+    });
+
+    it('should sync state on progress event', () => {
+      const { state, downloader } = useDownload(
+        manager,
+        'https://example.com/file.zip',
+        {},
+      );
+
+      (downloader as any).task.progress = 65;
+      (downloader as any).task.speed = 2048;
+      (downloader as any).task.status = TaskStatus.Transferring;
+      downloader.emit('progress', {
+        taskId: (downloader as any).task.id,
+        progress: 65,
+        speed: 2048,
+      });
+
+      expect(state.progress).toBe(65);
+      expect(state.speed).toBe(2048);
+      expect(state.isDownloading).toBe(true);
+    });
+
+    it('should sync state on error event', () => {
+      const { state, downloader } = useDownload(
+        manager,
+        'https://example.com/file.zip',
+        {},
+      );
+
+      const mockError = {
+        code: 'UNKNOWN' as const,
+        message: 'Download failed',
+        timestamp: Date.now(),
+        retryable: true,
+      };
+      (downloader as any).task.status = TaskStatus.Failed;
+      (downloader as any).task.error = mockError;
+      downloader.emit('error', mockError);
+
+      expect(state.isFailed).toBe(true);
+      expect(state.error).toEqual(mockError);
+    });
+
+    it('should delegate control methods to downloader', () => {
+      const { pause, cancel, downloader } = useDownload(
+        manager,
+        'https://example.com/file.zip',
+        {},
+      );
+
+      const pauseSpy = vi.spyOn(downloader, 'pause');
+      const cancelSpy = vi.spyOn(downloader, 'cancel');
+
+      pause();
+      expect(pauseSpy).toHaveBeenCalled();
+
+      cancel();
+      expect(cancelSpy).toHaveBeenCalled();
     });
 
     it('should cleanup subscriptions', () => {

@@ -126,6 +126,7 @@
 
 ### 4.1 Vue 2 适配器 (2 小时)
 - [x] 实现 useUpload 函数
+- [x] 实现 useDownload 函数并提供完善测试与示例
 - [x] 使用 Vue.observable 包装状态
 - [x] 提供控制方法
 - [x] 自动清理订阅
