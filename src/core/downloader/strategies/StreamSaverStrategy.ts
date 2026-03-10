@@ -5,9 +5,9 @@
  */
 
 import type {
+  IDownloadResult,
   IDownloadStrategy,
   IDownloadStrategyConfig,
-  IDownloadResult,
 } from './IDownloadStrategy';
 
 /**

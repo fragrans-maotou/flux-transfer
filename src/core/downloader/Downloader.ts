@@ -2,12 +2,6 @@
  * Downloader - 文件下载，支持断点续传和多策略
  */
 
-import {
-  DownloadStrategyFactory,
-  type DownloadStrategyType,
-  type IDownloadProgress,
-  type IDownloadStrategy,
-} from '../../strategies';
 import { BaseTransfer } from '../BaseTransfer';
 import {
   ErrorCode,
@@ -17,6 +11,12 @@ import {
   type ITransferCheckpoint,
   type ITransferTask,
 } from '../types';
+import {
+  DownloadStrategyFactory,
+  type DownloadStrategyType,
+  type IDownloadProgress,
+  type IDownloadStrategy,
+} from './strategies';
 
 /**
  * Download configuration interface

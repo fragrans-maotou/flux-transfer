@@ -3,9 +3,9 @@
  * Automatically selects the best available download strategy
  */
 
-import type { IDownloadStrategy, DownloadStrategyType } from './IDownloadStrategy';
-import { FetchBlobStrategy } from './FetchBlobStrategy';
 import { DirectLinkStrategy } from './DirectLinkStrategy';
+import { FetchBlobStrategy } from './FetchBlobStrategy';
+import type { DownloadStrategyType, IDownloadStrategy } from './IDownloadStrategy';
 import { StreamSaverStrategy } from './StreamSaverStrategy';
 
 /**

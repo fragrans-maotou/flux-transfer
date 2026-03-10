@@ -43,7 +43,7 @@ export {
   type IDownloadStrategy,
   type IDownloadStrategyConfig,
   type IStreamSaverConfig
-} from './strategies';
+} from './core/downloader/strategies';
 
 // Version
 export const VERSION = '0.1.0';
