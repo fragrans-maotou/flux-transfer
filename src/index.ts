@@ -1,49 +1,21 @@
-/**
- * Flux Transfer SDK - Entry Point
- * Production-grade file transfer SDK
- */
-
-// Core exports will be added as modules are implemented
-export { BaseTransfer } from './core/BaseTransfer';
-export { Downloader, type IDownloadConfig } from './core/downloader/Downloader';
-export type { IGroupStatus, IPlugin, IPluginContext, ITransferManagerRef } from './core/plugin/types';
-export { TaskPriority, TaskQueue } from './core/TaskQueue';
-export { TransferManager } from './core/TransferManager';
+// 导出核心类型
 export * from './core/types';
-export { Uploader, type IUploadConfig } from './core/uploader/Uploader';
 
-// Infrastructure
-export { EventEmitter } from './infra/EventEmitter';
-export { FetchAdapter } from './infra/network/FetchAdapter';
-export {
-  NetworkAdapterFactory,
-  type INetworkAdapterOptions,
-  type NetworkAdapterType
-} from './infra/network/NetworkAdapterFactory';
-export { XHRAdapter } from './infra/network/XHRAdapter';
-export { IndexedDBStorage } from './infra/storage/IndexedDBStorage';
-export {
-  HashCalculator,
-  type IHashOptions,
-  type IHashResult
-} from './infra/worker/HashCalculator';
+// 导出核心状态管理
+export * from './core/store';
+export * from './core/storage-middleware';
 
-// Uploader utilities
-export { ChunkManager, type IChunk } from './core/uploader/ChunkManager';
+// 导出调度引擎
+export * from './core/engine';
 
-// Download strategies
-export {
-  DirectLinkStrategy,
-  DownloadStrategyFactory,
-  FetchBlobStrategy,
-  StreamSaverStrategy,
-  type DownloadStrategyType,
-  type IDownloadProgress,
-  type IDownloadResult,
-  type IDownloadStrategy,
-  type IDownloadStrategyConfig,
-  type IStreamSaverConfig
-} from './core/downloader/strategies';
+// 导出内置策略
+export * from './core/strategies';
 
-// Version
-export const VERSION = '0.1.0';
+// 导出后台运算工具
+export * from './core/worker/hash-calculator';
+
+// 导出网络层
+export * from './network/fetch-adapter';
+
+// 不要在这里导出框架适配器，这会导致核心包强依赖 Vue 和 React。
+// 适配器应该由用户通过 flux-transfer/vue3 或 flux-transfer/react 独立引入。
