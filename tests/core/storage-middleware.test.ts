@@ -1,37 +1,51 @@
-// @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStorageMiddleware } from '../../src/core/storage-middleware';
 import { TransferStore } from '../../src/core/store';
-import type { IStorageAdapter } from '../../src/core/types';
+import type { IStorageAdapter, ITransferTask } from '../../src/core/types';
 
-describe('StorageMiddleware', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+describe('storage middleware', () => {
+  beforeEach(() => vi.useFakeTimers());
 
-  it('应该在 store 状态改变时将数据持久化到 adapter', async () => {
-    const store = new TransferStore();
-    const mockAdapter: IStorageAdapter = {
-      get: vi.fn().mockResolvedValue([]),
-      set: vi.fn().mockResolvedValue(undefined),
+  it('persists the fields required for resume and omits File', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const storage: IStorageAdapter = {
+      get: vi.fn().mockResolvedValue(null),
+      set,
       remove: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
+      keys: vi.fn().mockResolvedValue([]),
     };
+    const store = new TransferStore();
+    const stop = createStorageMiddleware(store, storage, 'tasks');
 
-    const unsubscribe = createStorageMiddleware(store, mockAdapter, 'test-key');
+    const upload = {
+      id: 'a',
+      type: 'upload',
+      status: 'paused',
+      file: new File(['abc'], 'a.txt'),
+      fileName: 'a.txt',
+      fileHash: 'hash',
+      url: '/upload',
+      progress: 50,
+      transferredBytes: 3,
+      totalBytes: 6,
+      speed: 0,
+      remainingTime: 0,
+      data: { folder: 1 },
+      session: { uploadedChunks: [0] },
+    } satisfies ITransferTask;
 
-    store.dispatch({
-      type: 'ADD_TASK',
-      payload: { id: 'test-id', progress: 50, status: 'paused' } as any
+    store.dispatch({ type: 'ADD_TASK', payload: upload });
+    await vi.advanceTimersByTimeAsync(250);
+
+    const snapshot = set.mock.calls[0][1][0];
+    expect(snapshot).toMatchObject({
+      id: 'a',
+      fileHash: 'hash',
+      url: '/upload',
+      session: { uploadedChunks: [0] },
     });
-
-    // 触发 debounce timeout
-    vi.runAllTimers();
-
-    expect(mockAdapter.set).toHaveBeenCalledWith('test-key', expect.arrayContaining([
-      expect.objectContaining({ id: 'test-id', progress: 50, status: 'paused' })
-    ]));
-
-    unsubscribe();
+    expect(snapshot).not.toHaveProperty('file');
+    stop();
   });
 });

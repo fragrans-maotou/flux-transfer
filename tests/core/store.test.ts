@@ -1,30 +1,45 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { TransferStore } from '../../src/core/store'; 
+import { describe, expect, it } from 'vitest';
+import { TransferStore } from '../../src/core/store';
+import type { ITransferTask } from '../../src/core/types';
+
+function task(id: string, totalBytes: number, progress: number): ITransferTask {
+  return {
+    id,
+    type: 'upload',
+    status: 'transferring',
+    file: null,
+    fileName: id,
+    url: '/upload',
+    progress,
+    transferredBytes: (totalBytes * progress) / 100,
+    totalBytes,
+    speed: 0,
+    remainingTime: 0,
+    data: {},
+    session: {},
+  };
+}
 
 describe('TransferStore', () => {
-  let store: TransferStore;
+  it('adds and immutably updates a task', () => {
+    const store = new TransferStore();
+    store.dispatch({ type: 'ADD_TASK', payload: task('a', 100, 0) });
+    const previous = store.getTask('a');
 
-  beforeEach(() => {
-    store = new TransferStore();
+    store.dispatch({
+      type: 'UPDATE_TASK',
+      payload: { id: 'a', updates: { progress: 50 } },
+    });
+
+    expect(store.getTask('a')?.progress).toBe(50);
+    expect(store.getTask('a')).not.toBe(previous);
   });
 
-  it('应该以空的 tasks 记录作为初始状态', () => {
-    const state = store.getState();
-    expect(state.tasks).toEqual({});
-  });
+  it('weights global progress by bytes', () => {
+    const store = new TransferStore();
+    store.dispatch({ type: 'ADD_TASK', payload: task('large', 900, 50) });
+    store.dispatch({ type: 'ADD_TASK', payload: task('small', 100, 100) });
 
-  it('应该能够正确添加一个任务', () => {
-    const mockTask = {
-      id: 'test-id',
-      fileName: 'test.zip',
-      fileSize: 1000,
-      status: 'idle',
-      progress: 0,
-    } as any; 
-
-    store.dispatch({ type: 'ADD_TASK', payload: mockTask });
-    
-    expect(store.getState().tasks['test-id']).toBeDefined();
-    expect(store.getState().tasks['test-id'].fileName).toBe('test.zip');
+    expect(store.getState().globalProgress).toBe(55);
   });
 });

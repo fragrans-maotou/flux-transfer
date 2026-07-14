@@ -1,396 +1,159 @@
-# Flux Transfer SDK
+# flux-transfer
 
-一个功能强大、健壮且框架无关的浏览器文件传输 SDK。
+一个小而明确的浏览器文件传输引擎。
 
-[English](./README.md)
-
-## 特性
-
-- **健壮的持久化**：自动保存进度到 `IndexedDB`。如果不可用（例如隐私模式），则优雅降级到 `LocalStorage`。
-- **断点续传恢复**：页面刷新后调用 `manager.restore()` 即可恢复中断的上传任务——IndexedDB 可以持久化 `File` 对象，无需用户重新选择文件。
-- **高性能**：
-    - **Web Worker 哈希计算**：将 MD5 计算任务卸载到后台 Worker，防止 UI 冻结。
-    - **自适应分片**：根据实时网络速度动态调整分片大小（目标：每片 2 秒），以最大化吞吐量。当用户显式设置了 `chunkSize` 时，自适应会被禁用。
-- **智能重试**：实现指数退避算法，增强应对网络波动的能力。
-- **插件系统**：可扩展的架构，允许在不修改核心代码的情况下添加自定义逻辑（如日志记录、鉴权等）。
-- **框架适配器**：提供 Vue 2、Vue 3、React 开箱即用的响应式适配。
-
----
+核心只负责直传、分片、并发、重试、暂停与恢复、进度和任务状态。不同后端的字段、请求格式与响应结构通过协议边界适配，不进入传输算法。
 
 ## 安装
 
-```bash
+~~~bash
 npm install flux-transfer
-```
+~~~
 
----
+## 基础使用
 
-## 快速开始
+~~~ts
+import { TransferEngine } from 'flux-transfer';
 
-### 上传文件
-
-```typescript
-import { TransferManager, FetchAdapter } from 'flux-transfer';
-
-// 1. 初始化管理器
-const manager = new TransferManager({
-  maxConcurrent: 3,       // 最多 3 个并发任务
-  enableCheckpoint: true, // 启用持久化 (IndexedDB / LocalStorage)
+const transfer = new TransferEngine({
+  uploadUrl: '/api/upload',
+  chunkUrl: '/api/upload/chunk',
+  completeUrl: '/api/upload/complete',
+  chunkSize: 5 * 1024 * 1024,
+  concurrency: 3,
+  retries: 2,
 });
 
-// 2. 处理文件输入
-document.getElementById('fileInput').addEventListener('change', (e) => {
-  const files = e.target.files;
-  if (!files.length) return;
-
-  // 3. 创建上传器并开始
-  const uploader = manager.createUploader(files[0], {
-    uploadUrl: 'https://api.example.com/upload/chunk',
-    mergeUrl: 'https://api.example.com/upload/merge',
-    networkAdapter: new FetchAdapter(),
-    maxConcurrentChunks: 3, // 分片并发数
-  });
-
-  // 4. 监听事件
-  uploader.on('progress', (data) => {
-    console.log(`进度: ${data.progress}% | 速度: ${(data.speed / 1024).toFixed(1)} KB/s`);
-  });
-
-  uploader.on('statusChange', ({ status }) => {
-    console.log(`状态变更: ${status}`);
-  });
-
-  uploader.on('completed', () => console.log('上传完成!'));
-  uploader.on('error', (err) => console.error('上传失败:', err));
-
-  uploader.start();
+const taskId = transfer.upload(file, {
+  data: { folderId: 'docs' },
 });
 
-// 批量上传
-const uploaders = manager.uploadBatch(files, {
-  uploadUrl: 'https://api.example.com/upload/chunk',
-  mergeUrl: 'https://api.example.com/upload/merge',
-  networkAdapter: new FetchAdapter(),
-}, 'batch-group-1');
-```
-
-### 下载文件
-
-```typescript
-import { TransferManager } from 'flux-transfer';
-
-const manager = new TransferManager({ maxConcurrent: 3 });
-
-// 创建下载器
-const downloader = manager.createDownloader('https://example.com/file.zip', {
-  fileName: 'my-file.zip',     // 可选：自定义文件名
-  strategy: 'auto',            // 可选：'auto' | 'fetch-blob' | 'stream-saver' | 'direct-link'
-  enableResume: true,          // 可选：启用断点续传
+const unsubscribe = transfer.subscribe(taskId, (task) => {
+  console.log(task?.status, task?.progress);
 });
 
-// 监听事件
-downloader.on('progress', (data) => {
-  console.log(`下载进度: ${data.progress}%`);
-});
+transfer.pause(taskId);
+transfer.resume(taskId);
+transfer.cancel(taskId);
+~~~
 
-downloader.on('completed', () => console.log('下载完成!'));
+小于或等于 `chunkSize` 的文件直接上传，大文件自动分片。`concurrency` 只表示单个文件的分片并发数。
 
-downloader.start();
+## 兼容不同后端
 
-// 批量下载
-const downloaders = manager.downloadBatch([
-  'https://example.com/file1.zip',
-  'https://example.com/file2.zip',
-], { strategy: 'auto' }, 'download-group-1');
-```
+常见差异使用声明式配置，例如字段名和分片序号：
 
-### 断点续传恢复
-
-```typescript
-// 页面加载时恢复中断的上传
-window.addEventListener('load', async () => {
-  const restored = await manager.restore({
-    // 可选：覆盖配置（如重新指定 networkAdapter）
-    networkAdapter: new FetchAdapter(),
-  });
-
-  console.log(`恢复了 ${restored.length} 个中断任务`);
-
-  restored.forEach(uploader => {
-    const task = uploader.getTask();
-    console.log(`恢复: ${task.fileName}, 进度: ${task.progress}%`);
-    // 恢复后的任务状态为 Paused，由用户决定是否继续
-    uploader.resume();
-  });
-});
-```
-
-配置合并优先级：`管理器全局配置 < checkpoint 中保存的配置 < configOverrides 参数`
-
----
-
-## Vue 2 适配器
-
-为 Vue 2 项目提供基于 `Vue.observable()` 的响应式能力。
-
-```javascript
-// main.js - 初始化（只需一次）
-import Vue from 'vue';
-import { setVue } from 'flux-transfer/vue2';
-setVue(Vue);
-```
-
-```javascript
-// 组件中使用
-import { FetchAdapter, TransferManager } from 'flux-transfer';
-import { useUpload, wrapUploader } from 'flux-transfer/vue2';
-
-export default {
-  data() {
-    return { manager: null, uploads: [] };
+~~~ts
+const transfer = new TransferEngine({
+  uploadUrl: '/upload',
+  chunkUrl: '/upload/part',
+  fields: {
+    file: 'uploadFile',
+    chunkIndex: 'partNumber',
+    totalChunks: 'partCount',
+    fileHash: 'md5',
+    fileName: 'name',
   },
-  async created() {
-    this.manager = new TransferManager({ enableCheckpoint: true });
+  chunkIndexBase: 1,
+});
+~~~
 
-    // 恢复中断的任务
-    const restored = await this.manager.restore({ networkAdapter: new FetchAdapter() });
-    restored.forEach(uploader => {
-      const ctrl = wrapUploader(uploader); // 包装成响应式
-      this.uploads.push({
-        fileName: uploader.getTask().fileName,
-        fileSize: uploader.getTask().fileSize,
-        ctrl,
-      });
-    });
+单个任务可以覆盖 URL、请求头和业务参数：
+
+~~~ts
+transfer.upload(file, {
+  url: '/tenant-a/upload',
+  chunkUrl: '/tenant-a/upload/part',
+  headers: {
+    'X-Tenant-ID': 'tenant-a',
   },
-  methods: {
-    addFile(file) {
-      // 创建新上传，自动包含响应式 state
-      const ctrl = useUpload(this.manager, file, {
-        uploadUrl: '/api/upload',
-        networkAdapter: new FetchAdapter(),
-      });
-      this.uploads.push({ fileName: file.name, fileSize: file.size, ctrl });
-      ctrl.start();
+  data: {
+    folderId: 42,
+    documentType: 'contract',
+  },
+});
+~~~
+
+特殊后端协议只需要改写 HTTP 边界：
+
+~~~ts
+const transfer = new TransferEngine({
+  uploadUrl: '/upload',
+  protocol: {
+    createChunkRequest(context) {
+      return {
+        url: '/signed-part?index=' + context.chunkIndex,
+        method: 'PUT',
+        body: context.chunk,
+      };
+    },
+
+    parseResponse(_phase, response) {
+      return {
+        uploadId: (response.data as { uploadId: string }).uploadId,
+      };
     },
   },
-  beforeDestroy() {
-    this.uploads.forEach(item => item.ctrl.cleanup());
-  },
-};
-```
+});
+~~~
 
-### Vue 2 适配器 API
+可覆盖的协议钩子只有：
 
-| 函数 | 描述 |
-|------|------|
-| `setVue(Vue)` | 注入 Vue 2 构造函数（使用前调用一次） |
-| `useUpload(manager, file, config, groupId?)` | 创建上传器并返回响应式状态 |
-| `useDownload(manager, url, config, groupId?)` | 创建下载器并返回响应式状态 |
-| `wrapUploader(uploader)` | 将已有的 Uploader（如 `restore()` 恢复的）包装为响应式结构 |
-| `useTransferList(manager)` | 所有任务的响应式视图 |
-| `fluxTransferMixin` | Vue mixin，在 `beforeDestroy` 时自动清理 |
+- `createDirectRequest`
+- `createChunkRequest`
+- `createCompleteRequest`
+- `parseResponse`
 
----
+常见差异用配置，特殊差异用协议钩子，核心传输流程始终保持一致。
 
-## 插件系统
+## 暂停、恢复与取消
 
-SDK 支持插件架构，允许你通过钩子函数介入上传生命周期。
+~~~ts
+transfer.pause(taskId);
+transfer.resume(taskId);
+transfer.cancel(taskId);
+transfer.retry(taskId);
+~~~
 
-### 创建插件
+暂停和取消会中断正在进行的 Hash 或网络请求。恢复时会继续使用已经完成的分片信息。
 
-实现 `IPlugin` 接口：
+## 页面刷新后恢复
 
-```typescript
-import { IPlugin, IPluginContext } from 'flux-transfer/core/plugin/types';
+~~~ts
+import { LocalStorageAdapter, TransferEngine } from 'flux-transfer';
 
-export class LoggerPlugin implements IPlugin {
-  name = 'LoggerPlugin';
-
-  onTaskCreated(context: IPluginContext) {
-    console.log(`任务创建: ${context.task.id}`);
-  }
-
-  beforeStart(context: IPluginContext) {
-    console.log('上传开始...');
-  }
-
-  onProgress(context: IPluginContext, progress: number) {
-    console.log(`上传进度: ${progress}%`);
-  }
-
-  onSuccess(context: IPluginContext) {
-    console.log('上传成功!');
-  }
-
-  onError(context: IPluginContext, error: Error) {
-    console.error('上传失败:', error);
-  }
-  
-  // 中间件：转换请求（例如添加认证头）
-  async transformRequest(config) {
-      config.headers['Authorization'] = 'Bearer token';
-      return config;
-  }
-}
-```
-
-### 使用插件与全局事件解耦
-
-在实际业务（如 Vue/React 组件）中，强烈建议**将通用逻辑（如加签、日志）写在插件中**，而**将页面 UI 逻辑（如刷新列表）绑定在全局事件上**。
-
-这是因为当用户离开页面时，如果在插件里传了组件的 `this`，会导致内存泄露或报错。而底层的 `TransferManager` 是一个全局的 `EventEmitter`。
-
-```typescript
-import { TransferManager } from 'flux-transfer';
-
-// 1. 定义全局插件 (写在项目入口或 store 中)
-const GlobalNotifyPlugin = {
-  name: 'GlobalNotifyPlugin',
-  onProgress(context, progress) {
-    console.log(`[全局] ${context.task.fileName} 进度: ${progress}%`);
-  }
-};
-
-const manager = new TransferManager({
-  plugins: [GlobalNotifyPlugin] // 全局注册
+const transfer = new TransferEngine({
+  uploadUrl: '/upload',
+  storageAdapter: new LocalStorageAdapter(),
 });
 
-export default manager;
-```
+await transfer.init();
 
-在具体的页面组件中，通过监听事件来刷新 UI：
-
-```typescript
-// AnyComponent.vue
-import manager from '@/store/transfer';
-
-export default {
-  created() {
-    // 监听全局完成事件
-    this.handleTaskComplete = (task) => {
-      // 通过 groupId 判断是否是本页面的任务
-      if (task.groupId === 'my-page-group') {
-        const group = manager.getGroupStatus(task.groupId);
-        // group 返回: { total, completed, failed, progress, isAllCompleted }
-        if (group.isAllCompleted) {
-          this.fetchTableData(); // 本组上传完毕，刷新本页面的表格
-        }
-      }
-    };
-    manager.on('taskCompleted', this.handleTaskComplete);
-  },
-  beforeDestroy() {
-    manager.off('taskCompleted', this.handleTaskComplete); // 安全卸载
-  },
-  methods: {
-    uploadFile(file) {
-      // 组件内发起上传，无需再传冗长的 plugins 数组
-      manager.createUploader(file, { uploadUrl: '/api/upload' }, 'my-page-group').start();
-    }
-  }
+const restoredTask = transfer.store.getTask(taskId);
+if (restoredTask?.status === 'paused') {
+  transfer.resume(taskId, { file });
 }
-```
-```typescript
-import { TransferManager } from 'flux-transfer';
+~~~
 
-// 示例：用户离开页面后，依然能在后台静默调用业务接口
-const SyncRecordPlugin = {
-  name: 'SyncRecordPlugin',
-  onSuccess: async (context) => {
-    // 这里的代码脱离了 UI 组件生命周期，极其安全
-    console.log(`后台静默通知: 任务 ${context.task.id} 上传完毕`);
-    await fetch('/api/file/notify-update', {
-      method: 'POST',
-      body: JSON.stringify({ fileId: context.task.id, status: 'DONE' })
-    });
-  }
-};
+浏览器无法安全持久化原始 `File` 对象，因此页面刷新后需要用户重新选择文件。任务 Hash、上传地址、业务数据、会话数据和已完成分片会继续使用。
 
-const manager = new TransferManager({
-  plugins: [SyncRecordPlugin]
+## 下载
+
+~~~ts
+const taskId = transfer.download('/api/files/1', {
+  filename: 'report.pdf',
+  headers: {
+    Authorization: 'Bearer token',
+  },
 });
-```
+~~~
 
----
+下载采用 Blob 模式。超大文件流式写盘不属于核心能力，可以在独立扩展中实现。
 
-## 架构详情
+## 设计原则
 
-### 存储策略 ("用完即删")
-- **首选**：`IndexedDB` (异步，支持 Blob/File 对象)。
-- **降级**：`LocalStorage` (同步，仅字符串，有大小限制)。如果 IndexedDB 被阻止（例如无痕模式），会自动启用。
-- **清理**：上传成功（或取消）后，检查点会被**自动删除**，确保不残留陈旧数据。
-
-### 性能优化
-- **Web Worker**：哈希计算在单独的线程中进行。如果浏览器不支持 Worker，则优雅降级到主线程。
-- **自适应分片**：SDK 会测量上传速度并动态调整分片大小。
-    - 慢速网络 → 更小的分片 (最小 256KB) → 更可靠。
-    - 快速网络 → 更大的分片 (最大 50MB) → 更少开销。
-    - **注意**：当用户显式设置了 `chunkSize` 时，自适应分片会被禁用，严格按照用户指定的大小分片。
-
----
-
-## API 参考
-
-### `TransferManager`
-
-| 方法 | 描述 |
-|------|------|
-| `createUploader(file, config, groupId?)` | 创建上传任务 |
-| `createDownloader(url, config, groupId?)` | 创建下载任务 |
-| `restore(configOverrides?)` | 从存储中恢复中断的上传任务，返回 `Uploader[]`（状态为 Paused） |
-| `getRecoverableSessions()` | 获取存储中的原始检查点数据 |
-| `uploadBatch(files, config, groupId?)` | 批量上传并自动入队 |
-| `downloadBatch(urls, config, groupId?)` | 批量下载并自动入队 |
-| `getTask(taskId)` | 获取任务实例 |
-| `getAllTasks()` | 获取所有任务 |
-| `getTasksByGroup(groupId)` | 获取分组内的任务 |
-| `getGroupStatus(groupId)` | 获取分组状态，返回 `{ total, completed, failed, progress, isAllCompleted }` |
-| `on(event, callback)` | 监听全局事件（例如 `taskCompleted`, `taskProgress`） |
-
-### `Uploader`
-
-| 方法 | 描述 |
-|------|------|
-| `start()` | 开始上传 (计算哈希 → 上传分片 → 合并) |
-| `pause()` | 暂停上传 (中止当前请求，保存状态) |
-| `resume()` | 恢复上传 (重新加载状态，验证哈希/分片) |
-| `cancel()` | 取消上传并清除检查点 |
-| `restoreFromStorage()` | 从存储恢复进度（内部由 `manager.restore()` 调用） |
-| `getTask()` | 获取任务信息 |
-| `on(event, callback)` | 订阅事件 |
-
-### `Downloader`
-
-| 方法 | 描述 |
-|------|------|
-| `start()` | 开始下载 |
-| `pause()` | 暂停下载 |
-| `resume()` | 恢复下载 |
-| `cancel()` | 取消下载并清除检查点 |
-| `getStrategyName()` | 获取当前下载策略名称 |
-| `getDownloadedBytes()` | 获取已下载字节数 |
-| `on(event, callback)` | 订阅事件 |
-
-### 事件
-
-| 事件 | 数据 | 描述 |
-|------|------|------|
-| `progress` | `{ progress, speed, remainingTime }` | 进度更新 |
-| `statusChange` | `{ status, prevStatus, taskId }` | 状态变更 |
-| `completed` | `{ taskId }` | 任务完成 |
-| `error` | `{ code, message, original? }` | 任务失败 |
-
-### 状态枚举 `TaskStatus`
-
-```typescript
-enum TaskStatus {
-  Idle = 'idle',           // 等待中
-  Processing = 'processing', // 处理中 (计算哈希等)
-  Transferring = 'transferring', // 传输中
-  Paused = 'paused',       // 已暂停
-  Completed = 'completed', // 已完成
-  Failed = 'failed',       // 已失败
-  Cancelled = 'cancelled', // 已取消
-}
-```
+- 核心只有一条传输主链。
+- 后端差异停留在 HTTP 边界。
+- 配置项必须真实生效。
+- 不为了“可能有用”而增加功能。
+- 优先保证正确性、可测试性和可理解性。

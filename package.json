@@ -1,7 +1,7 @@
 {
   "name": "flux-transfer",
   "version": "0.1.5",
-  "description": "Production-grade, framework-agnostic, ultra-lightweight file transfer SDK with chunked upload/download, resume capability, and multi-framework support",
+  "description": "Small, framework-agnostic file transfer engine with chunking, resume, retry and protocol adapters",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -11,90 +11,36 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./vue2": {
-      "types": "./dist/adapters/vue2.d.ts",
-      "import": "./dist/adapters/vue2.js",
-      "require": "./dist/adapters/vue2.cjs"
-    },
-    "./vue3": {
-      "types": "./dist/adapters/vue3.d.ts",
-      "import": "./dist/adapters/vue3.js",
-      "require": "./dist/adapters/vue3.cjs"
-    },
-    "./react": {
-      "types": "./dist/adapters/react.d.ts",
-      "import": "./dist/adapters/react.js",
-      "require": "./dist/adapters/react.cjs"
     }
   },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
+  "files": ["dist", "README.md", "README_CN.md", "LICENSE"],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run test"
   },
-  "keywords": [
-    "file-upload",
-    "file-download",
-    "chunk-upload",
-    "resume-upload",
-    "large-file",
-    "transfer",
-    "sdk",
-    "vue",
-    "react",
-    "typescript"
-  ],
-  "author": "",
+  "keywords": ["file-upload", "file-download", "chunk-upload", "resume-upload", "typescript"],
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yourusername/flux-transfer.git"
-  },
-  "bugs": {
-    "url": "https://github.com/yourusername/flux-transfer/issues"
-  },
-  "homepage": "https://github.com/yourusername/flux-transfer#readme",
-  "engines": {
-    "node": ">=16.0.0"
-  },
-  "peerDependencies": {
-    "react": ">=16.8.0",
-    "vue": ">=2.6.0"
-  },
-  "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "vue": { "optional": true }
-  },
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": { "spark-md5": "^3.0.2" },
   "devDependencies": {
-    "@types/react": "^19.2.17",
     "@types/spark-md5": "^3.0.5",
     "@typescript-eslint/eslint-plugin": "^8.50.0",
     "@typescript-eslint/parser": "^8.50.0",
     "@vitest/coverage-v8": "^4.0.16",
-    "@vitest/ui": "^4.0.16",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "jsdom": "^27.3.0",
     "prettier": "^3.7.4",
-    "react": "^19.2.7",
-    "spark-md5": "^3.0.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16",
-    "vue": "^3.5.35"
+    "vitest": "^4.0.16"
   }
 }
