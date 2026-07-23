@@ -52,6 +52,9 @@ describe('resolveConfig', () => {
     [{ retryDelay: -1 }, 'retryDelay'],
     [{ timeout: 0 }, 'timeout'],
     [{ maxFileSize: -1 }, 'maxFileSize'],
+    [{ chunkSize: Number.NaN }, 'chunkSize'],
+    [{ concurrency: Number.POSITIVE_INFINITY }, 'concurrency'],
+    [{ retries: 1.5 }, 'retries'],
   ])('rejects invalid config %o', (config, message) => {
     expect(() => resolveConfig(config)).toThrow(message);
   });

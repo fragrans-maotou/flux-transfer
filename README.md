@@ -58,6 +58,12 @@ Per-task URL, headers and data override global values. Unusual protocols can imp
 
 Provide a storageAdapter, call await transfer.init(), then resume a restored upload with transfer.resume(taskId, { file }). Browsers cannot persist the original File, so the user must select it again after a page reload.
 
+Restored files are checked against a persisted resume descriptor. If a legacy snapshot has no descriptor, flux-transfer restarts it instead of reusing unsafe chunk state. Headers are not persisted; pass refreshed credentials to `resume`. Set a stable `protocolId` for custom protocols. A protocol can implement async `reconcileUpload` to make server-side uploaded chunks authoritative.
+
+## Retry and idempotency
+
+The default policy retries network errors, timeouts, 408, 429 and 5xx responses. Exported `NetworkError`, `NetworkTimeoutError` and `HTTPError` let custom adapters keep the same semantics. Use `shouldRetry` for a custom policy. Set `idempotencyHeader: 'Idempotency-Key'` to add stable operation-specific keys to default protocol requests; this is off by default and requires server-side deduplication.
+
 ## Download
 
 transfer.download(url, { filename, headers }) downloads to a Blob. Large-file disk streaming is intentionally outside the core.

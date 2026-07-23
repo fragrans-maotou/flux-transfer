@@ -42,5 +42,6 @@ function toStoredTask(task: ITransferTask): StoredTask {
     remainingTime: task.remainingTime,
     data: task.data,
     session: task.session,
+    resumeDescriptor: task.resumeDescriptor,
   };
 }

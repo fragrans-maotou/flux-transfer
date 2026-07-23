@@ -24,7 +24,7 @@
     "lint:fix": "eslint src tests --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "type-check": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run test"
+    "prepublishOnly": "npm run lint && npm run type-check && npm run test:coverage && npm run build"
   },
   "keywords": ["file-upload", "file-download", "chunk-upload", "resume-upload", "typescript"],
   "license": "MIT",

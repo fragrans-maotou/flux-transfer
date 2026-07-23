@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FetchAdapter } from '../../src/network/fetch-adapter';
+import { HTTPError, NetworkError, NetworkTimeoutError } from '../../src/network/errors';
 
 describe('FetchAdapter', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -56,7 +57,10 @@ describe('FetchAdapter', () => {
     ));
 
     await expect(new FetchAdapter().request({ url: '/fail' }))
-      .rejects.toThrow('HTTP 500 Server Error');
+      .rejects.toMatchObject({
+        name: 'HTTPError',
+        response: { status: 500, data: 'no' },
+      } satisfies Partial<HTTPError>);
   });
 
   it('links the external abort signal', async () => {
@@ -70,5 +74,23 @@ describe('FetchAdapter', () => {
     controller.abort();
 
     await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('distinguishes an internal timeout from external cancellation', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => {
+        reject(new DOMException('aborted', 'AbortError'));
+      });
+    })));
+
+    await expect(new FetchAdapter().request({ url: '/slow', timeout: 1 }))
+      .rejects.toBeInstanceOf(NetworkTimeoutError);
+  });
+
+  it('wraps fetch transport failures as NetworkError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
+
+    await expect(new FetchAdapter().request({ url: '/offline' }))
+      .rejects.toBeInstanceOf(NetworkError);
   });
 });

@@ -10,7 +10,7 @@ export function createDirectRequest(
   body.append(context.fields.file, context.file);
   appendData(body, context.task.data);
 
-  return baseRequest(context.uploadUrl, context, body);
+  return baseRequest(context.uploadUrl, context, 'direct', body);
 }
 
 export function createChunkRequest(
@@ -28,7 +28,7 @@ export function createChunkRequest(
   body.append(context.fields.fileName, context.file.name);
   appendData(body, context.task.data);
 
-  return baseRequest(context.chunkUrl, context, body);
+  return baseRequest(context.chunkUrl, context, 'chunk:' + context.chunkIndex, body);
 }
 
 export function createCompleteRequest(
@@ -36,9 +36,10 @@ export function createCompleteRequest(
 ): INetworkRequestConfig | null {
   if (!context.completeUrl) return null;
 
+  const base = baseRequest(context.completeUrl, context, 'complete');
   return {
-    ...baseRequest(context.completeUrl, context),
-    headers: { 'Content-Type': 'application/json', ...context.headers },
+    ...base,
+    headers: { 'Content-Type': 'application/json', ...base.headers },
     body: JSON.stringify({
       fileHash: context.task.fileHash,
       filename: context.file.name,
@@ -52,15 +53,27 @@ export function createCompleteRequest(
 function baseRequest(
   url: string,
   context: IUploadProtocolContext,
+  operation: string,
   body?: BodyInit,
 ): INetworkRequestConfig {
   return {
     url,
     method: 'POST',
-    headers: context.headers,
+    headers: withIdempotencyHeader(context, operation),
     body,
     timeout: context.timeout,
     credentials: context.credentials,
+  };
+}
+
+function withIdempotencyHeader(
+  context: IUploadProtocolContext,
+  operation: string,
+): Record<string, string> {
+  if (!context.idempotencyHeader) return context.headers;
+  return {
+    [context.idempotencyHeader]: context.task.id + ':' + operation,
+    ...context.headers,
   };
 }
 

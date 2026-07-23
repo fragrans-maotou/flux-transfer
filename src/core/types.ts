@@ -24,8 +24,27 @@ export interface ITransferTask {
   remainingTime: number;
   data: Record<string, unknown>;
   session: Record<string, unknown>;
+  resumeDescriptor?: IResumeDescriptor;
   error?: Error;
   result?: unknown;
+}
+
+export interface IFileIdentity {
+  name: string;
+  size: number;
+  lastModified: number;
+  hash?: string;
+}
+
+/** Non-sensitive information needed to safely restore an upload. */
+export interface IResumeDescriptor {
+  version: 1;
+  file: IFileIdentity;
+  chunkSize: number;
+  uploadUrl: string;
+  chunkUrl: string;
+  completeUrl: string | false;
+  protocolId: string;
 }
 
 export interface IStoreState {
@@ -85,6 +104,7 @@ export interface IUploadFields {
 }
 
 export type UploadPhase = 'direct' | 'chunk' | 'complete';
+export type TransferPhase = UploadPhase | 'download';
 
 export interface IUploadProtocolContext {
   task: ITransferTask;
@@ -100,17 +120,33 @@ export interface IUploadProtocolContext {
   headers: Record<string, string>;
   timeout: number;
   credentials: RequestCredentials;
+  idempotencyHeader: string | false;
 }
 
 export interface IUploadProtocol {
   createDirectRequest?(context: IUploadProtocolContext): INetworkRequestConfig;
   createChunkRequest?(context: IUploadProtocolContext): INetworkRequestConfig;
   createCompleteRequest?(context: IUploadProtocolContext): INetworkRequestConfig | null;
+  reconcileUpload?(
+    context: IUploadProtocolContext,
+  ): IUploadReconciliation | Promise<IUploadReconciliation>;
   parseResponse?(
     phase: UploadPhase,
     response: INetworkResponse,
     context: IUploadProtocolContext,
   ): Record<string, unknown> | void;
+}
+
+export interface IUploadReconciliation {
+  uploadedChunks: number[];
+  session?: Record<string, unknown>;
+}
+
+export interface IRetryContext {
+  attempt: number;
+  maxRetries: number;
+  phase: TransferPhase;
+  request: INetworkRequestConfig;
 }
 
 export interface ISDKConfig {
@@ -128,6 +164,9 @@ export interface ISDKConfig {
   credentials?: RequestCredentials;
   fields?: Partial<IUploadFields>;
   chunkIndexBase?: 0 | 1;
+  protocolId?: string;
+  idempotencyHeader?: string | false;
+  shouldRetry?: (error: unknown, context: IRetryContext) => boolean;
   protocol?: IUploadProtocol;
   networkAdapter?: INetworkAdapter;
   storageAdapter?: IStorageAdapter;
@@ -140,6 +179,7 @@ export interface ITransferOptions {
   headers?: Record<string, string>;
   data?: Record<string, unknown>;
   filename?: string;
+  protocolId?: string;
   protocol?: IUploadProtocol;
 }
 
@@ -162,6 +202,9 @@ export interface IResolvedSDKConfig {
   credentials: RequestCredentials;
   fields: IUploadFields;
   chunkIndexBase: 0 | 1;
+  protocolId: string;
+  idempotencyHeader: string | false;
+  shouldRetry?: (error: unknown, context: IRetryContext) => boolean;
   protocol?: IUploadProtocol;
   networkAdapter?: INetworkAdapter;
   storageAdapter?: IStorageAdapter;
@@ -191,17 +234,33 @@ export function resolveConfig(config: ISDKConfig = {}): IResolvedSDKConfig {
     credentials: config.credentials ?? 'same-origin',
     fields: { ...DEFAULT_FIELDS, ...config.fields },
     chunkIndexBase: config.chunkIndexBase ?? 0,
+    protocolId: config.protocolId ?? (config.protocol ? 'custom' : 'default-v1'),
+    idempotencyHeader: config.idempotencyHeader ?? false,
+    shouldRetry: config.shouldRetry,
     protocol: config.protocol,
     networkAdapter: config.networkAdapter,
     storageAdapter: config.storageAdapter,
   };
 
-  if (resolved.chunkSize < 1024) throw new Error('chunkSize must be at least 1KB');
-  if (resolved.concurrency < 1) throw new Error('concurrency must be at least 1');
-  if (resolved.retries < 0) throw new Error('retries must be non-negative');
-  if (resolved.retryDelay < 0) throw new Error('retryDelay must be non-negative');
-  if (resolved.timeout < 1) throw new Error('timeout must be positive');
-  if (resolved.maxFileSize < 0) throw new Error('maxFileSize must be non-negative');
+  assertInteger('chunkSize', resolved.chunkSize, 1024);
+  assertInteger('concurrency', resolved.concurrency, 1);
+  assertInteger('retries', resolved.retries, 0);
+  assertFiniteNumber('retryDelay', resolved.retryDelay, 0);
+  assertFiniteNumber('timeout', resolved.timeout, 1);
+  assertFiniteNumber('maxFileSize', resolved.maxFileSize, 0);
+  if (!resolved.protocolId) throw new Error('protocolId must not be empty');
 
   return resolved;
+}
+
+function assertInteger(name: string, value: number, minimum: number): void {
+  if (!Number.isInteger(value) || value < minimum) {
+    throw new Error(`${name} must be an integer greater than or equal to ${minimum}`);
+  }
+}
+
+function assertFiniteNumber(name: string, value: number, minimum: number): void {
+  if (!Number.isFinite(value) || value < minimum) {
+    throw new Error(`${name} must be a finite number greater than or equal to ${minimum}`);
+  }
 }

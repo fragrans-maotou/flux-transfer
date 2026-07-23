@@ -50,6 +50,7 @@ function context(): IUploadProtocolContext {
     headers: config.headers,
     timeout: config.timeout,
     credentials: config.credentials,
+    idempotencyHeader: config.idempotencyHeader,
   };
 }
 
@@ -87,5 +88,13 @@ describe('default upload protocol', () => {
       chunk: undefined,
       chunkIndex: undefined,
     })).toThrow('incomplete');
+  });
+
+  it('creates stable operation-specific idempotency keys when enabled', () => {
+    const configured = { ...context(), idempotencyHeader: 'Idempotency-Key' };
+
+    expect(createDirectRequest(configured).headers?.['Idempotency-Key']).toBe('a:direct');
+    expect(createChunkRequest(configured).headers?.['Idempotency-Key']).toBe('a:chunk:0');
+    expect(createCompleteRequest(configured)?.headers?.['Idempotency-Key']).toBe('a:complete');
   });
 });

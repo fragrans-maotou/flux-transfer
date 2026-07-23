@@ -33,6 +33,15 @@ describe('storage middleware', () => {
       remainingTime: 0,
       data: { folder: 1 },
       session: { uploadedChunks: [0] },
+      resumeDescriptor: {
+        version: 1,
+        file: { name: 'a.txt', size: 6, lastModified: 1, hash: 'hash' },
+        chunkSize: 1024,
+        uploadUrl: '/upload',
+        chunkUrl: '/chunk',
+        completeUrl: false,
+        protocolId: 'default-v1',
+      },
     } satisfies ITransferTask;
 
     store.dispatch({ type: 'ADD_TASK', payload: upload });
@@ -44,6 +53,7 @@ describe('storage middleware', () => {
       fileHash: 'hash',
       url: '/upload',
       session: { uploadedChunks: [0] },
+      resumeDescriptor: { chunkSize: 1024, protocolId: 'default-v1' },
     });
     expect(snapshot).not.toHaveProperty('file');
     stop();

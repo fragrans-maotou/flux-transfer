@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TransferEngine } from '../../src/core/engine';
 import { STORAGE_KEY, type StoredTask } from '../../src/core/storage-middleware';
+import { computeFileHash } from '../../src/core/utils/hash';
 import type {
   INetworkAdapter,
   INetworkRequestConfig,
@@ -163,5 +164,134 @@ describe('TransferEngine lifecycle', () => {
     });
 
     expect(() => engine.upload(new File(['abc'], 'a.txt'))).toThrow('maxFileSize');
+  });
+
+  it('rejects a restored file whose content does not match the saved hash', async () => {
+    const original = new File([new Uint8Array(2048)], 'a.bin', { lastModified: 123 });
+    const expectedHash = await computeFileHash(original, 1024);
+    const stored: StoredTask = {
+      id: 'saved',
+      type: 'upload',
+      status: 'paused',
+      fileName: original.name,
+      fileHash: expectedHash,
+      url: '/upload',
+      progress: 50,
+      transferredBytes: 1024,
+      totalBytes: original.size,
+      speed: 0,
+      remainingTime: 0,
+      data: {},
+      session: { uploadedChunks: [0] },
+      resumeDescriptor: {
+        version: 1,
+        file: {
+          name: original.name,
+          size: original.size,
+          lastModified: original.lastModified,
+          hash: expectedHash,
+        },
+        chunkSize: 1024,
+        uploadUrl: '/upload',
+        chunkUrl: '/chunk',
+        completeUrl: false,
+        protocolId: 'default-v1',
+      },
+    };
+    const storage: IStorageAdapter = {
+      get: async () => [stored],
+      set: async () => {},
+      remove: async () => {},
+      clear: async () => {},
+      keys: async () => [],
+    };
+    const request = vi.fn().mockResolvedValue(ok());
+    const engine = new TransferEngine({
+      uploadUrl: '/upload',
+      chunkUrl: '/chunk',
+      chunkSize: 1024,
+      storageAdapter: storage,
+      networkAdapter: { request },
+    });
+    await engine.init();
+
+    const wrongFile = new File([new Uint8Array(2048).fill(1)], 'a.bin', { lastModified: 123 });
+    engine.resume('saved', { file: wrongFile });
+    const failed = await waitFor(engine, 'saved', 'failed');
+
+    expect(failed.error?.message).toContain('does not match');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('restarts legacy snapshots instead of reusing unsafe chunks', async () => {
+    const request = vi.fn().mockResolvedValue(ok());
+    const engine = new TransferEngine({
+      uploadUrl: '/upload',
+      chunkSize: 1024,
+      hash: false,
+      networkAdapter: { request },
+    });
+    engine.store.dispatch({
+      type: 'ADD_TASK',
+      payload: {
+        id: 'legacy',
+        type: 'upload',
+        status: 'paused',
+        file: null,
+        fileName: 'a.bin',
+        fileHash: 'unsafe-old-hash',
+        url: '/upload',
+        progress: 50,
+        transferredBytes: 1024,
+        totalBytes: 2048,
+        speed: 0,
+        remainingTime: 0,
+        data: {},
+        session: { uploadedChunks: [0] },
+      },
+    });
+
+    engine.resume('legacy', { file: new File([new Uint8Array(2048)], 'a.bin') });
+    const completed = await waitFor(engine, 'legacy', 'completed');
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(completed.resumeDescriptor).toMatchObject({ version: 1, chunkSize: 1024 });
+  });
+
+  it('rejects restored uploads with a different chunk layout or protocol', () => {
+    const file = new File([new Uint8Array(2048)], 'a.bin', { lastModified: 123 });
+    const descriptor = {
+      version: 1 as const,
+      file: { name: file.name, size: file.size, lastModified: file.lastModified },
+      chunkSize: 1024,
+      uploadUrl: '/upload',
+      chunkUrl: '/chunk',
+      completeUrl: false as const,
+      protocolId: 'backend-v1',
+    };
+    const task: ITransferTask = {
+      id: 'saved',
+      type: 'upload',
+      status: 'paused',
+      file: null,
+      fileName: file.name,
+      url: '/upload',
+      progress: 0,
+      transferredBytes: 0,
+      totalBytes: file.size,
+      speed: 0,
+      remainingTime: 0,
+      data: {},
+      session: {},
+      resumeDescriptor: descriptor,
+    };
+
+    const wrongChunkSize = new TransferEngine({ chunkSize: 2048, protocolId: 'backend-v1' });
+    wrongChunkSize.store.dispatch({ type: 'ADD_TASK', payload: task });
+    expect(() => wrongChunkSize.resume('saved', { file })).toThrow('chunkSize');
+
+    const wrongProtocol = new TransferEngine({ chunkSize: 1024, protocolId: 'backend-v2' });
+    wrongProtocol.store.dispatch({ type: 'ADD_TASK', payload: task });
+    expect(() => wrongProtocol.resume('saved', { file })).toThrow('protocolId');
   });
 });

@@ -3,6 +3,7 @@ import type {
   INetworkRequestConfig,
   INetworkResponse,
 } from '../core/types';
+import { HTTPError, NetworkError, NetworkTimeoutError } from './errors';
 
 export class FetchAdapter implements INetworkAdapter {
   async request<T = unknown>(config: INetworkRequestConfig): Promise<INetworkResponse<T>> {
@@ -11,7 +12,12 @@ export class FetchAdapter implements INetworkAdapter {
     config.signal?.addEventListener('abort', abort, { once: true });
     if (config.signal?.aborted) controller.abort();
 
-    const timer = setTimeout(abort, config.timeout ?? 30_000);
+    const timeout = config.timeout ?? 30_000;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeout);
 
     try {
       const response = await fetch(config.url, {
@@ -21,28 +27,33 @@ export class FetchAdapter implements INetworkAdapter {
         credentials: config.credentials ?? 'same-origin',
         signal: controller.signal,
       });
-
-      if (!response.ok) {
-        throw new Error('HTTP ' + response.status + ' ' + response.statusText);
-      }
-
-      const data = await readBody(response, config) as T;
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headers[key] = value;
-      });
-
-      return {
-        data,
+      const result: INetworkResponse<T> = {
+        data: await readBody(response, config) as T,
         status: response.status,
         statusText: response.statusText,
-        headers,
+        headers: readHeaders(response.headers),
       };
+
+      if (!response.ok) throw new HTTPError(result);
+      return result;
+    } catch (error) {
+      if (timedOut && isAbort(error)) throw new NetworkTimeoutError(timeout, error);
+      if (error instanceof HTTPError || config.signal?.aborted) throw error;
+      if (error instanceof TypeError) throw new NetworkError(error.message, error);
+      throw error;
     } finally {
       clearTimeout(timer);
       config.signal?.removeEventListener('abort', abort);
     }
   }
+}
+
+function readHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
 }
 
 async function readBody(
@@ -85,4 +96,8 @@ async function readBody(
     }
   }
   return text;
+}
+
+function isAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
 }

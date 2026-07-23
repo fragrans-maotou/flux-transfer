@@ -1,4 +1,5 @@
 import { FetchAdapter } from '../network/fetch-adapter';
+import { HTTPError, NetworkError } from '../network/errors';
 import {
   createChunkRequest,
   createCompleteRequest,
@@ -11,6 +12,7 @@ import type {
   INetworkRequestConfig,
   INetworkResponse,
   IResolvedSDKConfig,
+  IResumeDescriptor,
   IResumeOptions,
   ISDKConfig,
   IStore,
@@ -18,6 +20,7 @@ import type {
   ITransferTask,
   IUploadProtocol,
   IUploadProtocolContext,
+  TransferPhase,
   UploadPhase,
 } from './types';
 import { resolveConfig } from './types';
@@ -31,6 +34,7 @@ export class TransferEngine {
   private readonly controllers = new Map<string, AbortController>();
   private readonly running = new Set<string>();
   private readonly options = new Map<string, ITransferOptions>();
+  private readonly pendingFileValidation = new Set<string>();
   private readonly stopPersistence?: () => void;
 
   constructor(config: ISDKConfig = {}) {
@@ -68,6 +72,7 @@ export class TransferEngine {
     this.controllers.clear();
     this.running.clear();
     this.options.clear();
+    this.pendingFileValidation.clear();
     this.stopPersistence?.();
   }
 
@@ -80,6 +85,7 @@ export class TransferEngine {
     if (!url) throw new Error('uploadUrl is required');
 
     const id = createId();
+    const resumeDescriptor = createResumeDescriptor(file, options, this.config, url);
     this.options.set(id, options);
     this.store.dispatch({
       type: 'ADD_TASK',
@@ -97,6 +103,7 @@ export class TransferEngine {
         remainingTime: 0,
         data: { ...options.data },
         session: {},
+        resumeDescriptor,
       },
     });
     this.start(id);
@@ -162,9 +169,43 @@ export class TransferEngine {
     if (task.type === 'upload' && !file) {
       throw new Error('A File is required to resume an upload after page reload');
     }
+    if (file && this.config.maxFileSize > 0 && file.size > this.config.maxFileSize) {
+      throw new Error('File exceeds maxFileSize');
+    }
 
+    const fileWasReplaced =
+      task.type === 'upload' && options.file !== undefined && options.file !== task.file;
     const previousOptions = this.options.get(taskId) ?? {};
-    this.options.set(taskId, { ...previousOptions, ...options });
+    let nextOptions = { ...previousOptions, ...options };
+    let resumeDescriptor = task.resumeDescriptor;
+    let fileHash = task.fileHash;
+    let session = task.session;
+    let progress = task.progress;
+    let transferredBytes = task.transferredBytes;
+
+    if (fileWasReplaced && file) {
+      if (resumeDescriptor) {
+        assertFileIdentity(file, resumeDescriptor);
+        assertResumeConfig(options, this.config, resumeDescriptor);
+        nextOptions = {
+          ...previousOptions,
+          ...options,
+          url: resumeDescriptor.uploadUrl,
+          chunkUrl: resumeDescriptor.chunkUrl,
+          completeUrl: resumeDescriptor.completeUrl,
+        };
+        if (resumeDescriptor.file.hash) this.pendingFileValidation.add(taskId);
+      } else {
+        // Legacy snapshots lack enough information for safe reuse. Restart them.
+        fileHash = undefined;
+        session = {};
+        progress = 0;
+        transferredBytes = 0;
+        resumeDescriptor = createResumeDescriptor(file, options, this.config, task.url);
+      }
+    }
+
+    this.options.set(taskId, nextOptions);
     this.store.dispatch({
       type: 'UPDATE_TASK',
       payload: {
@@ -172,8 +213,14 @@ export class TransferEngine {
         updates: {
           file,
           fileName: options.filename ?? task.fileName,
-          url: options.url ?? task.url,
+          fileHash,
+          url: nextOptions.url ?? task.url,
           data: options.data ? { ...task.data, ...options.data } : task.data,
+          session,
+          resumeDescriptor,
+          progress,
+          transferredBytes,
+          totalBytes: file?.size ?? task.totalBytes,
           status: 'idle',
           error: undefined,
         },
@@ -215,6 +262,7 @@ export class TransferEngine {
   remove(taskId: string): void {
     this.controllers.get(taskId)?.abort();
     this.options.delete(taskId);
+    this.pendingFileValidation.delete(taskId);
     this.store.dispatch({ type: 'REMOVE_TASK', payload: { id: taskId } });
   }
 
@@ -270,6 +318,23 @@ export class TransferEngine {
     if (!file) throw new Error('Upload file is missing');
 
     const isChunked = file.size > this.config.chunkSize;
+    if (this.pendingFileValidation.has(taskId)) {
+      const expectedHash = task.resumeDescriptor?.file.hash;
+      this.update(taskId, { status: 'hashing', progress: 0 });
+      const actualHash = await computeFileHash(
+        file,
+        this.config.chunkSize,
+        signal,
+        (progress) => this.update(taskId, { progress: Math.round(progress * 0.05) }),
+      );
+      if (actualHash !== expectedHash) {
+        throw new Error('The selected file does not match the file saved for this upload');
+      }
+      this.pendingFileValidation.delete(taskId);
+      this.update(taskId, { fileHash: actualHash });
+      task = this.requireTask(taskId);
+    }
+
     if (isChunked && this.config.hash && !task.fileHash) {
       this.update(taskId, { status: 'hashing', progress: 0 });
       const fileHash = await computeFileHash(
@@ -280,7 +345,10 @@ export class TransferEngine {
       );
       task = this.requireTask(taskId);
       if (task.status === 'paused' || task.status === 'cancelled') return;
-      this.update(taskId, { fileHash });
+      this.update(taskId, {
+        fileHash,
+        resumeDescriptor: withFileHash(task.resumeDescriptor, fileHash),
+      });
     }
 
     this.update(taskId, { status: 'transferring' });
@@ -292,7 +360,7 @@ export class TransferEngine {
     const context = this.protocolContext(taskId);
     const protocol = this.protocol(taskId);
     const request = protocol.createDirectRequest?.(context) ?? createDirectRequest(context);
-    const response = await this.requestWithRetry({ ...request, signal }, signal);
+    const response = await this.requestWithRetry({ ...request, signal }, signal, 'direct');
     this.applyProtocolResponse(taskId, 'direct', response, context, protocol);
 
     this.update(taskId, {
@@ -311,7 +379,27 @@ export class TransferEngine {
     if (!file) throw new Error('Upload file is missing');
 
     const totalChunks = Math.ceil(file.size / this.config.chunkSize);
-    const uploaded = new Set(readUploadedChunks(initial.session, totalChunks));
+    const protocol = this.protocol(taskId);
+    let uploadedChunks = readUploadedChunks(initial.session, totalChunks);
+
+    if (protocol.reconcileUpload) {
+      const context = this.protocolContext(taskId, undefined, undefined, totalChunks);
+      const reconciliation = await protocol.reconcileUpload(context);
+      if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+      uploadedChunks = readUploadedChunks(
+        { uploadedChunks: reconciliation.uploadedChunks },
+        totalChunks,
+      );
+      this.update(taskId, {
+        session: {
+          ...this.requireTask(taskId).session,
+          ...reconciliation.session,
+          uploadedChunks,
+        },
+      });
+    }
+
+    const uploaded = new Set(uploadedChunks);
     const pending = Array.from({ length: totalChunks }, (_, index) => index)
       .filter((index) => !uploaded.has(index));
     const startedAt = Date.now();
@@ -328,7 +416,7 @@ export class TransferEngine {
         const context = this.protocolContext(taskId, chunk, index, totalChunks);
         const protocol = this.protocol(taskId);
         const request = protocol.createChunkRequest?.(context) ?? createChunkRequest(context);
-        const response = await this.requestWithRetry({ ...request, signal }, signal);
+        const response = await this.requestWithRetry({ ...request, signal }, signal, 'chunk');
 
         uploaded.add(index);
         const session = {
@@ -345,14 +433,17 @@ export class TransferEngine {
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
     const context = this.protocolContext(taskId, undefined, undefined, totalChunks);
-    const protocol = this.protocol(taskId);
     const completeRequest = protocol.createCompleteRequest
       ? protocol.createCompleteRequest(context)
       : createCompleteRequest(context);
 
     let result: unknown;
     if (completeRequest) {
-      const response = await this.requestWithRetry({ ...completeRequest, signal }, signal);
+      const response = await this.requestWithRetry(
+        { ...completeRequest, signal },
+        signal,
+        'complete',
+      );
       this.applyProtocolResponse(taskId, 'complete', response, context, protocol);
       result = response.data;
     }
@@ -384,7 +475,7 @@ export class TransferEngine {
       onDownloadProgress: (loaded, total) => {
         this.updateProgress(taskId, loaded, total || loaded, startedAt);
       },
-    }, signal);
+    }, signal, 'download');
 
     if (typeof document !== 'undefined') saveBlob(response.data, task.fileName);
 
@@ -410,7 +501,7 @@ export class TransferEngine {
     if (!file) throw new Error('Upload file is missing');
     const options = this.options.get(taskId) ?? {};
     const uploadUrl = options.url ?? task.url ?? this.config.uploadUrl;
-    const chunkUrl = options.chunkUrl ?? this.config.chunkUrl ?? uploadUrl;
+    const chunkUrl = options.chunkUrl ?? (this.config.chunkUrl || uploadUrl);
     const completeUrl = options.completeUrl ?? this.config.completeUrl;
 
     return {
@@ -427,6 +518,7 @@ export class TransferEngine {
       headers: { ...this.config.headers, ...options.headers },
       timeout: this.config.timeout,
       credentials: this.config.credentials,
+      idempotencyHeader: this.config.idempotencyHeader,
     };
   }
 
@@ -459,6 +551,7 @@ export class TransferEngine {
   private async requestWithRetry<T = unknown>(
     request: INetworkRequestConfig,
     signal: AbortSignal,
+    phase: TransferPhase,
   ): Promise<INetworkResponse<T>> {
     let lastError: unknown;
 
@@ -468,9 +561,15 @@ export class TransferEngine {
       } catch (error) {
         if (signal.aborted || isAbort(error)) throw error;
         lastError = error;
-        if (attempt < this.config.retries) {
-          await delay(this.config.retryDelay * 2 ** attempt, signal);
-        }
+
+        const context = { attempt, maxRetries: this.config.retries, phase, request };
+        const shouldRetry = this.config.shouldRetry
+          ? this.config.shouldRetry(error, context)
+          : isRetryableError(error);
+        if (attempt >= this.config.retries || !shouldRetry) break;
+
+        const fallbackDelay = this.config.retryDelay * 2 ** attempt;
+        await delay(readRetryAfter(error) ?? fallbackDelay, signal);
       }
     }
 
@@ -508,6 +607,76 @@ export class TransferEngine {
   private update(taskId: string, updates: Partial<ITransferTask>): void {
     this.store.dispatch({ type: 'UPDATE_TASK', payload: { id: taskId, updates } });
   }
+}
+
+function createResumeDescriptor(
+  file: File,
+  options: ITransferOptions,
+  config: IResolvedSDKConfig,
+  uploadUrl: string,
+): IResumeDescriptor {
+  return {
+    version: 1,
+    file: { name: file.name, size: file.size, lastModified: file.lastModified },
+    chunkSize: config.chunkSize,
+    uploadUrl,
+    chunkUrl: options.chunkUrl ?? (config.chunkUrl || uploadUrl),
+    completeUrl: options.completeUrl ?? config.completeUrl,
+    protocolId: options.protocolId ?? (options.protocol ? 'custom' : config.protocolId),
+  };
+}
+
+function assertFileIdentity(file: File, descriptor: IResumeDescriptor): void {
+  const expected = descriptor.file;
+  if (
+    file.name !== expected.name ||
+    file.size !== expected.size ||
+    file.lastModified !== expected.lastModified
+  ) {
+    throw new Error('The selected file does not match the file saved for this upload');
+  }
+}
+
+function assertResumeConfig(
+  options: IResumeOptions,
+  config: IResolvedSDKConfig,
+  descriptor: IResumeDescriptor,
+): void {
+  if (descriptor.chunkSize !== config.chunkSize) {
+    throw new Error('chunkSize does not match the saved upload');
+  }
+  const protocolId = options.protocolId ?? (options.protocol ? 'custom' : config.protocolId);
+  if (protocolId !== descriptor.protocolId) {
+    throw new Error('protocolId does not match the saved upload');
+  }
+}
+
+function withFileHash(
+  descriptor: IResumeDescriptor | undefined,
+  hash: string,
+): IResumeDescriptor | undefined {
+  if (!descriptor) return undefined;
+  return { ...descriptor, file: { ...descriptor.file, hash } };
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof NetworkError) return true;
+  if (!(error instanceof HTTPError)) return false;
+  const status = error.response.status;
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function readRetryAfter(error: unknown): number | undefined {
+  if (!(error instanceof HTTPError)) return undefined;
+  const value = error.response.headers['retry-after'];
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+
+  const date = Date.parse(value);
+  if (Number.isNaN(date)) return undefined;
+  return Math.max(0, date - Date.now());
 }
 
 function readUploadedChunks(session: Record<string, unknown>, total: number): number[] {
