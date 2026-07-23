@@ -76,3 +76,9 @@ Call `await transfer.destroy()` when finished. It marks unfinished tasks as canc
 ## Download
 
 transfer.download(url, { filename, headers }) downloads to a Blob. Large-file disk streaming is intentionally outside the core.
+
+## Evidence and compatibility
+
+Run `npm run example` for an end-to-end local HTTP upload that reconciles server state, sends three real multipart chunks and completes the upload. Run `npm run benchmark` for synthetic 100 MiB/1 GiB scheduling-overhead measurements; it does not measure network throughput or real Blob memory.
+
+See [compatibility and evidence boundaries](docs/compatibility.md) for verified capabilities and protocols that are not yet supported. CI runs the full publish gate and real HTTP integration test on Node 20.19, 22.12 and 24. The package consumer engine remains Node >=18, while the repository's current test toolchain requires Node 20.19+.

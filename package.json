@@ -13,10 +13,12 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md", "README_CN.md", "LICENSE"],
+  "files": ["dist", "docs/compatibility.md", "examples", "benchmarks", "README.md", "README_CN.md", "LICENSE"],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
+    "example": "npm run build && node examples/demo.mjs",
+    "benchmark": "npm run build && node --expose-gc benchmarks/transfer-overhead.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

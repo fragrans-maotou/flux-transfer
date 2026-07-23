@@ -214,6 +214,26 @@ const taskId = transfer.download('/api/files/1', {
 
 下载采用 Blob 模式。超大文件流式写盘不属于核心能力，可以在独立扩展中实现。
 
+## 真实后端示例与验证
+
+运行一个完整的本机 HTTP 分片上传示例：
+
+~~~bash
+npm run example
+~~~
+
+它会构建库、启动内存后端、查询服务端分片、上传 3 个 multipart 分片并执行 complete 请求。示例后端仅用于协议验证，不能直接用于生产。
+
+运行虚拟 100MiB/1GiB 调度开销基准：
+
+~~~bash
+npm run benchmark
+~~~
+
+该基准不代表真实网络吞吐或 Blob 内存占用。已验证能力、开发环境要求和明确不支持的协议见 [兼容性与证据边界](docs/compatibility.md)。
+
+CI 在 Node 20.19、22.12 和 24 上运行完整发布门禁及真实 HTTP 集成测试。库消费端仍声明 Node >=18；仓库开发工具链需要 Node 20.19+。
+
 ## 设计原则
 
 - 核心只有一条传输主链。
