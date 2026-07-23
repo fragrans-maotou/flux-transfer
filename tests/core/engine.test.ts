@@ -58,6 +58,7 @@ describe('TransferEngine', () => {
     expect(requests[0].body).toBeInstanceOf(FormData);
     expect((requests[0].body as FormData).get('folder')).toBe('1');
     expect(task.transferredBytes).toBe(3);
+    expect(task.progressSource).toBe('confirmed');
   });
 
   it('enforces chunk concurrency', async () => {
@@ -290,5 +291,32 @@ describe('TransferEngine', () => {
     await waitFor(engine, id, 'completed');
 
     expect(urls).toEqual(['/task-upload', '/task-upload']);
+  });
+
+  it('limits concurrency across multiple transfer tasks', async () => {
+    let activeTasks = 0;
+    let maxActiveTasks = 0;
+    const engine = new TransferEngine({
+      uploadUrl: '/upload',
+      chunkSize: 1024,
+      hash: false,
+      maxActiveTasks: 2,
+      networkAdapter: {
+        async request() {
+          activeTasks += 1;
+          maxActiveTasks = Math.max(maxActiveTasks, activeTasks);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          activeTasks -= 1;
+          return response();
+        },
+      },
+    });
+
+    const ids = Array.from({ length: 4 }, (_, index) =>
+      engine.upload(new File(['abc'], index + '.txt')),
+    );
+    await Promise.all(ids.map((id) => waitFor(engine, id, 'completed')));
+
+    expect(maxActiveTasks).toBe(2);
   });
 });

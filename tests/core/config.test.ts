@@ -4,7 +4,9 @@ import { resolveConfig } from '../../src/core/types';
 describe('resolveConfig', () => {
   it('resolves explicit transport and protocol values', () => {
     const protocol = {};
-    const networkAdapter = { request: async () => ({ data: null, status: 200, statusText: 'OK', headers: {} }) };
+    const networkAdapter = {
+      request: async () => ({ data: null, status: 200, statusText: 'OK', headers: {} }),
+    };
     const storageAdapter = {
       get: async () => null,
       set: async () => {},
@@ -18,6 +20,7 @@ describe('resolveConfig', () => {
       completeUrl: '/complete',
       chunkSize: 2048,
       concurrency: 4,
+      maxActiveTasks: 2,
       retries: 4,
       retryDelay: 10,
       timeout: 100,
@@ -36,6 +39,7 @@ describe('resolveConfig', () => {
       chunkUrl: '/chunk',
       completeUrl: '/complete',
       concurrency: 4,
+      maxActiveTasks: 2,
       hash: false,
       credentials: 'include',
       fields: { file: 'binary', chunkIndex: 'chunkIndex' },
@@ -48,6 +52,7 @@ describe('resolveConfig', () => {
   it.each([
     [{ chunkSize: 1 }, 'chunkSize'],
     [{ concurrency: 0 }, 'concurrency'],
+    [{ maxActiveTasks: 0 }, 'maxActiveTasks'],
     [{ retries: -1 }, 'retries'],
     [{ retryDelay: -1 }, 'retryDelay'],
     [{ timeout: 0 }, 'timeout'],

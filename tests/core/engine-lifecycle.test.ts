@@ -41,10 +41,14 @@ async function waitFor(
 function abortableResponse(config: INetworkRequestConfig, delay = 20): Promise<INetworkResponse> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => resolve(ok()), delay);
-    config.signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(new DOMException('aborted', 'AbortError'));
-    }, { once: true });
+    config.signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('aborted', 'AbortError'));
+      },
+      { once: true },
+    );
   });
 }
 
@@ -152,6 +156,7 @@ describe('TransferEngine lifecycle', () => {
 
     expect(task.result).toBe(blob);
     expect(task.transferredBytes).toBe(3);
+    expect(task.progressSource).toBe('streamed');
     expect(click).toHaveBeenCalled();
     click.mockRestore();
     vi.unstubAllGlobals();
@@ -293,5 +298,39 @@ describe('TransferEngine lifecycle', () => {
     const wrongProtocol = new TransferEngine({ chunkSize: 1024, protocolId: 'backend-v2' });
     wrongProtocol.store.dispatch({ type: 'ADD_TASK', payload: task });
     expect(() => wrongProtocol.resume('saved', { file })).toThrow('protocolId');
+  });
+
+  it('keeps active tasks cancelled after destroy and flushes that state', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const storage: IStorageAdapter = {
+      get: async () => null,
+      set,
+      remove: async () => {},
+      clear: async () => {},
+      keys: async () => [],
+    };
+    const engine = new TransferEngine({
+      uploadUrl: '/upload',
+      chunkSize: 1024,
+      hash: false,
+      storageAdapter: storage,
+      networkAdapter: {
+        async request() {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return ok();
+        },
+      },
+    });
+    const id = engine.upload(new File(['abc'], 'a.txt'));
+    await waitFor(engine, id, 'transferring');
+
+    const destroying = engine.destroy();
+    expect(engine.destroy()).toBe(destroying);
+    await destroying;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(engine.store.getTask(id)?.status).toBe('cancelled');
+    expect(set.mock.calls.at(-1)?.[1][0].status).toBe('cancelled');
+    expect(() => engine.upload(new File(['x'], 'b.txt'))).toThrow('destroyed');
   });
 });

@@ -1,11 +1,12 @@
 import { FetchAdapter } from '../network/fetch-adapter';
 import { HTTPError, NetworkError } from '../network/errors';
+import { createChunkRequest, createCompleteRequest, createDirectRequest } from './protocol';
 import {
-  createChunkRequest,
-  createCompleteRequest,
-  createDirectRequest,
-} from './protocol';
-import { createStorageMiddleware, STORAGE_KEY, type StoredTask } from './storage-middleware';
+  createStorageMiddleware,
+  STORAGE_KEY,
+  type StorageMiddlewareController,
+  type StoredTask,
+} from './storage-middleware';
 import { TransferStore } from './store';
 import type {
   INetworkAdapter,
@@ -33,9 +34,14 @@ export class TransferEngine {
   private readonly network: INetworkAdapter;
   private readonly controllers = new Map<string, AbortController>();
   private readonly running = new Set<string>();
+  private readonly runPromises = new Map<string, Promise<void>>();
+  private readonly queued = new Set<string>();
+  private readonly taskQueue: string[] = [];
   private readonly options = new Map<string, ITransferOptions>();
   private readonly pendingFileValidation = new Set<string>();
-  private readonly stopPersistence?: () => void;
+  private readonly persistence?: StorageMiddlewareController;
+  private destroyPromise?: Promise<void>;
+  private destroyed = false;
 
   constructor(config: ISDKConfig = {}) {
     this.config = resolveConfig(config);
@@ -43,11 +49,17 @@ export class TransferEngine {
     this.network = this.config.networkAdapter ?? new FetchAdapter();
 
     if (this.config.storageAdapter) {
-      this.stopPersistence = createStorageMiddleware(this.store, this.config.storageAdapter);
+      this.persistence = createStorageMiddleware(
+        this.store,
+        this.config.storageAdapter,
+        STORAGE_KEY,
+        this.config.onStorageError,
+      );
     }
   }
 
   async init(): Promise<void> {
+    this.assertUsable();
     if (!this.config.storageAdapter) return;
 
     const stored = await this.config.storageAdapter.get<StoredTask[]>(STORAGE_KEY);
@@ -62,21 +74,50 @@ export class TransferEngine {
           status: isTerminal(task.status) ? task.status : 'paused',
           speed: 0,
           remainingTime: 0,
+          progressSource: task.progressSource ?? progressSourceFor(task.type),
         },
       });
     }
   }
 
-  destroy(): void {
+  /** Stops new work, cancels active tasks and flushes their final persisted state. */
+  destroy(): Promise<void> {
+    if (this.destroyPromise) return this.destroyPromise;
+
+    this.destroyed = true;
+    this.taskQueue.length = 0;
+    this.queued.clear();
+
+    for (const task of Object.values(this.store.getState().tasks)) {
+      if (!isTerminal(task.status)) {
+        this.store.dispatch({
+          type: 'UPDATE_TASK',
+          payload: {
+            id: task.id,
+            updates: { status: 'cancelled', speed: 0, remainingTime: 0 },
+          },
+        });
+      }
+    }
     for (const controller of this.controllers.values()) controller.abort();
+
+    this.destroyPromise = this.finishDestroy();
+    return this.destroyPromise;
+  }
+
+  private async finishDestroy(): Promise<void> {
+    await Promise.allSettled([...this.runPromises.values()]);
+    await this.persistence?.stop();
+
     this.controllers.clear();
     this.running.clear();
+    this.runPromises.clear();
     this.options.clear();
     this.pendingFileValidation.clear();
-    this.stopPersistence?.();
   }
 
   upload(file: File, options: ITransferOptions = {}): string {
+    this.assertUsable();
     if (this.config.maxFileSize > 0 && file.size > this.config.maxFileSize) {
       throw new Error('File exceeds maxFileSize');
     }
@@ -97,6 +138,7 @@ export class TransferEngine {
         fileName: options.filename ?? file.name,
         url,
         progress: 0,
+        progressSource: 'confirmed',
         transferredBytes: 0,
         totalBytes: file.size,
         speed: 0,
@@ -111,6 +153,7 @@ export class TransferEngine {
   }
 
   download(url: string, options: ITransferOptions = {}): string {
+    this.assertUsable();
     if (!url) throw new Error('Download URL is required');
 
     const id = createId();
@@ -125,6 +168,7 @@ export class TransferEngine {
         fileName: options.filename ?? 'download',
         url,
         progress: 0,
+        progressSource: 'streamed',
         transferredBytes: 0,
         totalBytes: 0,
         speed: 0,
@@ -162,8 +206,9 @@ export class TransferEngine {
   }
 
   resume(taskId: string, options: IResumeOptions = {}): void {
+    this.assertUsable();
     const task = this.store.getTask(taskId);
-    if (!task || isTerminal(task.status) && task.status !== 'failed') return;
+    if (!task || (isTerminal(task.status) && task.status !== 'failed')) return;
 
     const file = options.file ?? task.file;
     if (task.type === 'upload' && !file) {
@@ -230,6 +275,7 @@ export class TransferEngine {
   }
 
   retry(taskId: string, options: IResumeOptions = {}): void {
+    this.assertUsable();
     const task = this.store.getTask(taskId);
     if (!task || task.status !== 'failed') return;
 
@@ -267,15 +313,33 @@ export class TransferEngine {
   }
 
   private start(taskId: string): void {
-    if (this.running.has(taskId)) return;
-    this.running.add(taskId);
-    void this.run(taskId).finally(() => {
-      this.running.delete(taskId);
+    if (this.destroyed || this.running.has(taskId) || this.queued.has(taskId)) return;
+    this.queued.add(taskId);
+    this.taskQueue.push(taskId);
+    this.drainQueue();
+  }
+
+  /** Starts queued tasks until the engine-wide concurrency limit is full. */
+  private drainQueue(): void {
+    while (!this.destroyed && this.running.size < this.config.maxActiveTasks) {
+      const taskId = this.taskQueue.shift();
+      if (!taskId) return;
+      this.queued.delete(taskId);
+
       const task = this.store.getTask(taskId);
-      if (task?.status === 'idle') {
-        this.start(taskId);
-      }
-    });
+      if (task?.status !== 'idle') continue;
+
+      this.running.add(taskId);
+      const promise = this.run(taskId).finally(() => {
+        this.running.delete(taskId);
+        this.runPromises.delete(taskId);
+        if (this.destroyed) return;
+
+        if (this.store.getTask(taskId)?.status === 'idle') this.start(taskId);
+        this.drainQueue();
+      });
+      this.runPromises.set(taskId, promise);
+    }
   }
 
   private async run(taskId: string): Promise<void> {
@@ -287,12 +351,14 @@ export class TransferEngine {
       if (task.type === 'upload') await this.runUpload(taskId, controller.signal);
       else await this.runDownload(taskId, controller.signal);
     } catch (error) {
+      if (this.destroyed) return;
       const task = this.store.getTask(taskId);
       if (!task) return;
       if (
         isAbort(error) &&
         (task.status === 'idle' || task.status === 'paused' || task.status === 'cancelled')
-      ) return;
+      )
+        return;
 
       controller.abort();
       this.store.dispatch({
@@ -321,11 +387,8 @@ export class TransferEngine {
     if (this.pendingFileValidation.has(taskId)) {
       const expectedHash = task.resumeDescriptor?.file.hash;
       this.update(taskId, { status: 'hashing', progress: 0 });
-      const actualHash = await computeFileHash(
-        file,
-        this.config.chunkSize,
-        signal,
-        (progress) => this.update(taskId, { progress: Math.round(progress * 0.05) }),
+      const actualHash = await computeFileHash(file, this.config.chunkSize, signal, (progress) =>
+        this.update(taskId, { progress: Math.round(progress * 0.05) }),
       );
       if (actualHash !== expectedHash) {
         throw new Error('The selected file does not match the file saved for this upload');
@@ -337,11 +400,8 @@ export class TransferEngine {
 
     if (isChunked && this.config.hash && !task.fileHash) {
       this.update(taskId, { status: 'hashing', progress: 0 });
-      const fileHash = await computeFileHash(
-        file,
-        this.config.chunkSize,
-        signal,
-        (progress) => this.update(taskId, { progress: Math.round(progress * 0.05) }),
+      const fileHash = await computeFileHash(file, this.config.chunkSize, signal, (progress) =>
+        this.update(taskId, { progress: Math.round(progress * 0.05) }),
       );
       task = this.requireTask(taskId);
       if (task.status === 'paused' || task.status === 'cancelled') return;
@@ -400,8 +460,9 @@ export class TransferEngine {
     }
 
     const uploaded = new Set(uploadedChunks);
-    const pending = Array.from({ length: totalChunks }, (_, index) => index)
-      .filter((index) => !uploaded.has(index));
+    const pending = Array.from({ length: totalChunks }, (_, index) => index).filter(
+      (index) => !uploaded.has(index),
+    );
     const startedAt = Date.now();
     let cursor = 0;
 
@@ -464,18 +525,22 @@ export class TransferEngine {
     const startedAt = Date.now();
     this.update(taskId, { status: 'transferring' });
 
-    const response = await this.requestWithRetry<Blob>({
-      url: task.url,
-      method: 'GET',
-      headers: { ...this.config.headers, ...options.headers },
-      timeout: this.config.timeout,
-      credentials: this.config.credentials,
-      responseType: 'blob',
-      signal,
-      onDownloadProgress: (loaded, total) => {
-        this.updateProgress(taskId, loaded, total || loaded, startedAt);
+    const response = await this.requestWithRetry<Blob>(
+      {
+        url: task.url,
+        method: 'GET',
+        headers: { ...this.config.headers, ...options.headers },
+        timeout: this.config.timeout,
+        credentials: this.config.credentials,
+        responseType: 'blob',
+        signal,
+        onDownloadProgress: (loaded, total) => {
+          this.updateProgress(taskId, loaded, total || loaded, startedAt);
+        },
       },
-    }, signal, 'download');
+      signal,
+      'download',
+    );
 
     if (typeof document !== 'undefined') saveBlob(response.data, task.fileName);
 
@@ -557,7 +622,9 @@ export class TransferEngine {
 
     for (let attempt = 0; attempt <= this.config.retries; attempt += 1) {
       try {
-        return await this.network.request<T>(request);
+        const response = await this.network.request<T>(request);
+        if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+        return response;
       } catch (error) {
         if (signal.aborted || isAbort(error)) throw error;
         lastError = error;
@@ -589,7 +656,10 @@ export class TransferEngine {
     const speed = Math.round(transferredBytes / elapsedSeconds);
     const remainingBytes = Math.max(0, totalBytes - transferredBytes);
     this.update(taskId, {
-      progress: Math.min(100, Math.round(progressStart + (transferredBytes / totalBytes) * progressRange)),
+      progress: Math.min(
+        100,
+        Math.round(progressStart + (transferredBytes / totalBytes) * progressRange),
+      ),
       transferredBytes,
       totalBytes,
       speed,
@@ -605,8 +675,17 @@ export class TransferEngine {
   }
 
   private update(taskId: string, updates: Partial<ITransferTask>): void {
+    if (this.destroyed) return;
     this.store.dispatch({ type: 'UPDATE_TASK', payload: { id: taskId, updates } });
   }
+
+  private assertUsable(): void {
+    if (this.destroyed) throw new Error('TransferEngine has been destroyed');
+  }
+}
+
+function progressSourceFor(type: ITransferTask['type']): 'confirmed' | 'streamed' {
+  return type === 'upload' ? 'confirmed' : 'streamed';
 }
 
 function createResumeDescriptor(
@@ -707,10 +786,14 @@ function isAbort(error: unknown): boolean {
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, milliseconds);
-    signal.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(new DOMException('The operation was aborted', 'AbortError'));
-    }, { once: true });
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      },
+      { once: true },
+    );
   });
 }
 

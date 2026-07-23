@@ -1,21 +1,14 @@
-import type {
-  INetworkRequestConfig,
-  IUploadProtocolContext,
-} from './types';
+import type { INetworkRequestConfig, IUploadProtocolContext } from './types';
 
-export function createDirectRequest(
-  context: IUploadProtocolContext,
-): INetworkRequestConfig {
+export function createDirectRequest(context: IUploadProtocolContext): INetworkRequestConfig {
   const body = new FormData();
-  body.append(context.fields.file, context.file);
+  body.append(context.fields.file, context.file, context.task.fileName);
   appendData(body, context.task.data);
 
   return baseRequest(context.uploadUrl, context, 'direct', body);
 }
 
-export function createChunkRequest(
-  context: IUploadProtocolContext,
-): INetworkRequestConfig {
+export function createChunkRequest(context: IUploadProtocolContext): INetworkRequestConfig {
   if (!context.chunk || context.chunkIndex === undefined || context.totalChunks === undefined) {
     throw new Error('Chunk request context is incomplete');
   }
@@ -25,7 +18,7 @@ export function createChunkRequest(
   body.append(context.fields.chunkIndex, String(context.chunkIndex + context.indexBase));
   body.append(context.fields.totalChunks, String(context.totalChunks));
   body.append(context.fields.fileHash, context.task.fileHash ?? '');
-  body.append(context.fields.fileName, context.file.name);
+  body.append(context.fields.fileName, context.task.fileName);
   appendData(body, context.task.data);
 
   return baseRequest(context.chunkUrl, context, 'chunk:' + context.chunkIndex, body);
@@ -41,11 +34,11 @@ export function createCompleteRequest(
     ...base,
     headers: { 'Content-Type': 'application/json', ...base.headers },
     body: JSON.stringify({
-      fileHash: context.task.fileHash,
-      filename: context.file.name,
-      totalChunks: context.totalChunks,
       ...context.task.data,
       ...context.task.session,
+      [context.fields.fileHash]: context.task.fileHash,
+      [context.fields.fileName]: context.task.fileName,
+      [context.fields.totalChunks]: context.totalChunks,
     }),
   };
 }

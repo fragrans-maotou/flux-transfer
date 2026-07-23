@@ -19,7 +19,7 @@ function context(): IUploadProtocolContext {
     type: 'upload',
     status: 'transferring',
     file,
-    fileName: file.name,
+    fileName: 'renamed.txt',
     fileHash: 'hash',
     url: '/upload',
     progress: 0,
@@ -61,8 +61,10 @@ describe('default upload protocol', () => {
     const chunkBody = chunk.body as FormData;
 
     expect(direct.url).toBe('/upload');
+    expect((direct.body as FormData).get('file')).toMatchObject({ name: 'renamed.txt' });
     expect(chunk.url).toBe('/chunk');
     expect(chunkBody.get('chunkIndex')).toBe('1');
+    expect(chunkBody.get('filename')).toBe('renamed.txt');
     expect(chunkBody.get('text')).toBe('value');
     expect(chunkBody.get('number')).toBe('1');
     expect(chunkBody.get('object')).toBe('{"a":1}');
@@ -71,23 +73,28 @@ describe('default upload protocol', () => {
   });
 
   it('builds completion JSON or skips it when disabled', () => {
-    const request = createCompleteRequest(context());
+    const upload = context();
+    upload.task.data.fileHash = 'must-not-override';
+    const request = createCompleteRequest(upload);
     expect(request?.url).toBe('/complete');
     expect(JSON.parse(String(request?.body))).toMatchObject({
       fileHash: 'hash',
       uploadId: 'u1',
       totalChunks: 2,
+      filename: 'renamed.txt',
     });
 
     expect(createCompleteRequest({ ...context(), completeUrl: false })).toBeNull();
   });
 
   it('rejects incomplete chunk context', () => {
-    expect(() => createChunkRequest({
-      ...context(),
-      chunk: undefined,
-      chunkIndex: undefined,
-    })).toThrow('incomplete');
+    expect(() =>
+      createChunkRequest({
+        ...context(),
+        chunk: undefined,
+        chunkIndex: undefined,
+      }),
+    ).toThrow('incomplete');
   });
 
   it('creates stable operation-specific idempotency keys when enabled', () => {
@@ -96,5 +103,25 @@ describe('default upload protocol', () => {
     expect(createDirectRequest(configured).headers?.['Idempotency-Key']).toBe('a:direct');
     expect(createChunkRequest(configured).headers?.['Idempotency-Key']).toBe('a:chunk:0');
     expect(createCompleteRequest(configured)?.headers?.['Idempotency-Key']).toBe('a:complete');
+  });
+
+  it('uses configured field names in the completion payload', () => {
+    const configured = {
+      ...context(),
+      fields: {
+        file: 'binary',
+        chunkIndex: 'part',
+        totalChunks: 'partCount',
+        fileHash: 'checksum',
+        fileName: 'name',
+      },
+    };
+    const request = createCompleteRequest(configured);
+
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      checksum: 'hash',
+      name: 'renamed.txt',
+      partCount: 2,
+    });
   });
 });

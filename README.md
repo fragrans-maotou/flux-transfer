@@ -15,6 +15,7 @@ const transfer = new TransferEngine({
   completeUrl: '/api/upload/complete',
   chunkSize: 5 * 1024 * 1024,
   concurrency: 3,
+  maxActiveTasks: 3,
   retries: 2,
 });
 
@@ -63,6 +64,14 @@ Restored files are checked against a persisted resume descriptor. If a legacy sn
 ## Retry and idempotency
 
 The default policy retries network errors, timeouts, 408, 429 and 5xx responses. Exported `NetworkError`, `NetworkTimeoutError` and `HTTPError` let custom adapters keep the same semantics. Use `shouldRetry` for a custom policy. Set `idempotencyHeader: 'Idempotency-Key'` to add stable operation-specific keys to default protocol requests; this is off by default and requires server-side deduplication.
+
+## Scheduling, progress and disposal
+
+`concurrency` limits chunks within one file. `maxActiveTasks` limits running tasks across the engine and defaults to 3. Queued tasks remain `idle` until a slot is free.
+
+Upload tasks report `progressSource: 'confirmed'`: progress counts chunks confirmed by the server, not bytes currently in flight. Download tasks report `progressSource: 'streamed'`.
+
+Call `await transfer.destroy()` when finished. It marks unfinished tasks as cancelled, aborts requests, waits for runners to exit and flushes the final persisted snapshot. The engine rejects new work after destruction. Persistence writes are serialized; use `onStorageError` to observe quota or permission failures.
 
 ## Download
 

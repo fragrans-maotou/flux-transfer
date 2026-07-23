@@ -42,21 +42,31 @@ describe('remaining core branches', () => {
   it('parses text, array buffers, empty bodies and non-JSON safely', async () => {
     const adapter = new FetchAdapter();
 
-    vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(new Response('text'))
-      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2])))
-      .mockResolvedValueOnce(new Response(''))
-      .mockResolvedValueOnce(new Response('{bad', {
-        headers: { 'Content-Type': 'application/json' },
-      }))
-      .mockResolvedValueOnce(new Response(new Uint8Array([1]))));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response('text'))
+        .mockResolvedValueOnce(new Response(new Uint8Array([1, 2])))
+        .mockResolvedValueOnce(new Response(''))
+        .mockResolvedValueOnce(
+          new Response('{bad', {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+        .mockResolvedValueOnce(new Response(new Uint8Array([1]))),
+    );
 
     expect((await adapter.request({ url: '/text', responseType: 'text' })).data).toBe('text');
-    expect((await adapter.request<ArrayBuffer>({
-      url: '/buffer',
-      responseType: 'arraybuffer',
-      timeout: 100,
-    })).data.byteLength).toBe(2);
+    expect(
+      (
+        await adapter.request<ArrayBuffer>({
+          url: '/buffer',
+          responseType: 'arraybuffer',
+          timeout: 100,
+        })
+      ).data.byteLength,
+    ).toBe(2);
     expect((await adapter.request({ url: '/empty' })).data).toBeNull();
     expect((await adapter.request({ url: '/bad-json' })).data).toBe('{bad');
     expect((await adapter.request<Blob>({ url: '/blob', responseType: 'blob' })).data.size).toBe(1);
@@ -152,7 +162,7 @@ describe('remaining core branches', () => {
       keys: async () => [],
     };
     const store = new TransferStore();
-    const stop = createStorageMiddleware(store, storage);
+    const persistence = createStorageMiddleware(store, storage);
     const task: ITransferTask = {
       id: 'a',
       type: 'upload',
@@ -172,7 +182,7 @@ describe('remaining core branches', () => {
     store.dispatch({ type: 'ADD_TASK', payload: task });
     await vi.advanceTimersByTimeAsync(250);
     expect(error).toHaveBeenCalled();
-    stop();
+    await persistence.stop();
     error.mockRestore();
     vi.useRealTimers();
   });

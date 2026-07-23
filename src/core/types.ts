@@ -8,6 +8,7 @@ export type TaskStatus =
   | 'cancelled';
 
 export type TransferType = 'upload' | 'download';
+export type ProgressSource = 'confirmed' | 'streamed';
 
 export interface ITransferTask {
   id: string;
@@ -18,6 +19,8 @@ export interface ITransferTask {
   fileHash?: string;
   url: string;
   progress: number;
+  /** Whether progress counts server-confirmed upload bytes or streamed download bytes. */
+  progressSource?: ProgressSource;
   transferredBytes: number;
   totalBytes: number;
   speed: number;
@@ -155,6 +158,8 @@ export interface ISDKConfig {
   completeUrl?: string | false;
   chunkSize?: number;
   concurrency?: number;
+  /** Maximum number of upload/download tasks that may run at the same time. */
+  maxActiveTasks?: number;
   retries?: number;
   retryDelay?: number;
   timeout?: number;
@@ -170,6 +175,8 @@ export interface ISDKConfig {
   protocol?: IUploadProtocol;
   networkAdapter?: INetworkAdapter;
   storageAdapter?: IStorageAdapter;
+  /** Receives persistence failures such as quota and permission errors. */
+  onStorageError?: (error: unknown) => void;
 }
 
 export interface ITransferOptions {
@@ -193,6 +200,7 @@ export interface IResolvedSDKConfig {
   completeUrl: string | false;
   chunkSize: number;
   concurrency: number;
+  maxActiveTasks: number;
   retries: number;
   retryDelay: number;
   timeout: number;
@@ -208,6 +216,7 @@ export interface IResolvedSDKConfig {
   protocol?: IUploadProtocol;
   networkAdapter?: INetworkAdapter;
   storageAdapter?: IStorageAdapter;
+  onStorageError?: (error: unknown) => void;
 }
 
 const DEFAULT_FIELDS: IUploadFields = {
@@ -225,6 +234,7 @@ export function resolveConfig(config: ISDKConfig = {}): IResolvedSDKConfig {
     completeUrl: config.completeUrl ?? false,
     chunkSize: config.chunkSize ?? 5 * 1024 * 1024,
     concurrency: config.concurrency ?? 3,
+    maxActiveTasks: config.maxActiveTasks ?? 3,
     retries: config.retries ?? 2,
     retryDelay: config.retryDelay ?? 500,
     timeout: config.timeout ?? 30_000,
@@ -240,10 +250,12 @@ export function resolveConfig(config: ISDKConfig = {}): IResolvedSDKConfig {
     protocol: config.protocol,
     networkAdapter: config.networkAdapter,
     storageAdapter: config.storageAdapter,
+    onStorageError: config.onStorageError,
   };
 
   assertInteger('chunkSize', resolved.chunkSize, 1024);
   assertInteger('concurrency', resolved.concurrency, 1);
+  assertInteger('maxActiveTasks', resolved.maxActiveTasks, 1);
   assertInteger('retries', resolved.retries, 0);
   assertFiniteNumber('retryDelay', resolved.retryDelay, 0);
   assertFiniteNumber('timeout', resolved.timeout, 1);

@@ -21,6 +21,7 @@ const transfer = new TransferEngine({
   completeUrl: '/api/upload/complete',
   chunkSize: 5 * 1024 * 1024,
   concurrency: 3,
+  maxActiveTasks: 3,
   retries: 2,
 });
 
@@ -174,6 +175,31 @@ const transfer = new TransferEngine({
 ~~~
 
 该配置默认关闭，避免无意改变跨域请求头。后端必须按此请求头实现去重。
+
+## 任务调度、进度和销毁
+
+`concurrency` 控制单个文件同时上传的分片数，`maxActiveTasks` 控制整个引擎同时运行的任务数，默认都是 3。等待中的任务保持 `idle`，有空位时按加入顺序启动。
+
+上传任务的 `progressSource` 是 `confirmed`：进度表示服务端已经确认的分片字节，不包含正在传输的字节。下载任务是 `streamed`，表示浏览器已经读取的响应字节。
+
+不再使用引擎时应等待销毁完成：
+
+~~~ts
+await transfer.destroy();
+~~~
+
+销毁会把未完成任务转成 `cancelled`，中断请求，等待运行协程退出，并将最终状态写入存储。销毁后的引擎不能再次启动任务。
+
+持久化写入严格按顺序执行，`destroy()` 会 flush 尚未写入的最新快照。可以通过 `onStorageError` 接收配额、权限等存储失败：
+
+~~~ts
+const transfer = new TransferEngine({
+  storageAdapter: new LocalStorageAdapter(),
+  onStorageError(error) {
+    reportError(error);
+  },
+});
+~~~
 
 ## 下载
 
