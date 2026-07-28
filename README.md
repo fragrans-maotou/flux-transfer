@@ -79,6 +79,6 @@ transfer.download(url, { filename, headers }) downloads to a Blob. Large-file di
 
 ## Evidence and compatibility
 
-Run `npm run example` for an end-to-end local HTTP upload that reconciles server state, sends three real multipart chunks and completes the upload. Run `npm run benchmark` for synthetic 100 MiB/1 GiB scheduling-overhead measurements; it does not measure network throughput or real Blob memory.
+Run `npm run example` for an end-to-end local HTTP upload that reconciles server state, sends three real multipart chunks and completes the upload. Run `npm run test:consumer` to pack and install the tarball in a clean temporary project, then verify ESM, CommonJS and strict TypeScript imports. Run `npm run benchmark` for synthetic 100 MiB/1 GiB scheduling-overhead measurements; it does not measure network throughput or real Blob memory.
 
-See [compatibility and evidence boundaries](docs/compatibility.md) for verified capabilities and protocols that are not yet supported. CI runs the full publish gate and real HTTP integration test on Node 20.19, 22.12 and 24. The package consumer engine remains Node >=18, while the repository's current test toolchain requires Node 20.19+.
+See [compatibility and evidence boundaries](docs/compatibility.md) for verified capabilities and protocols that are not yet supported. CI runs the full publish gate and real HTTP integration test on Node 20.19, 22.12 and 24, plus a separate package-consumer check on Node 18.20.8. The package consumer engine remains Node >=18, while the repository's current test toolchain requires Node 20.19+.

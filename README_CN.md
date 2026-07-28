@@ -230,9 +230,11 @@ npm run example
 npm run benchmark
 ~~~
 
+运行 `npm run test:consumer` 会把 tarball 安装到全新临时项目，并验证 ESM、CommonJS 和严格 TypeScript 导入。
+
 该基准不代表真实网络吞吐或 Blob 内存占用。已验证能力、开发环境要求和明确不支持的协议见 [兼容性与证据边界](docs/compatibility.md)。
 
-CI 在 Node 20.19、22.12 和 24 上运行完整发布门禁及真实 HTTP 集成测试。库消费端仍声明 Node >=18；仓库开发工具链需要 Node 20.19+。
+CI 在 Node 20.19、22.12 和 24 上运行完整发布门禁及真实 HTTP 集成测试，并在 Node 18.20.8 单独验证发布包消费。库消费端仍声明 Node >=18；仓库开发工具链需要 Node 20.19+。
 
 ## 设计原则
 

@@ -13,7 +13,7 @@
 | 服务端分片对账 `reconcileUpload` | 单元测试与真实 HTTP 集成测试 |
 | complete JSON 请求 | 单元测试与真实 HTTP 集成测试 |
 | 页面刷新后的文件身份校验 | 恢复生命周期测试 |
-| ESM、CJS、TypeScript 声明 | 发布构建与 pack 检查 |
+| ESM、CJS、TypeScript 声明 | tarball 安装消费测试 |
 
 真实 HTTP 集成测试位于 `tests/integration/http-backend.test.ts`。它会启动本机 HTTP 服务，使用默认 `FetchAdapter` 发送真正的 multipart 请求，不使用 mock 网络适配器。
 
@@ -35,7 +35,7 @@
 
 库面向具有以下 API 的现代浏览器：`File`、`Blob`、`FormData`、`fetch`、`AbortController`、`ReadableStream`、`crypto.randomUUID`（缺失时有任务 ID 回退）。
 
-npm 包声明 Node.js >=18，主要用于构建工具或同构项目依赖解析。仓库当前开发工具链 Vitest 4 和 jsdom 27 要求 Node 20.19+、22.12+ 或 24+，CI 使用这三个版本验证。
+npm 包声明 Node.js >=18，主要用于构建工具或同构项目依赖解析。仓库当前开发工具链 Vitest 4 和 jsdom 27 要求 Node 20.19+、22.12+ 或 24+，CI 使用这三个版本运行完整门禁，并在 Node 18.20.8 单独验证发布包消费。
 
 ## 性能证据的限制
 

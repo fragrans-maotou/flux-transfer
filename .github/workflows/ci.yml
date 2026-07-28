@@ -25,6 +25,21 @@ jobs:
       - run: npm run prepublishOnly
       - run: npm pack --dry-run
 
+  consumer-node-18:
+    name: Node 18 package consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18.20.8'
+      - run: npm run test:consumer
+
   benchmark:
     name: Synthetic transfer overhead
     runs-on: ubuntu-latest
