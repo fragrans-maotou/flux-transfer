@@ -2,11 +2,9 @@
 
 [中文文档](./README_CN.md)
 
-A small browser file-transfer engine.
+Browser **upload** (direct or auto-chunked by `chunkSize`) plus simple **`<a>` tag download**.
 
-Verified vs unverified capabilities are documented in [compatibility and evidence boundaries](docs/compatibility.md).
-
-The core owns one transfer pipeline: direct upload, chunking, concurrency, retry, pause/resume, progress and state. Backend-specific fields and response shapes stay at the protocol boundary.
+This is not a general-purpose transfer engine: Range / streamed-to-disk download stay with your backend (signed URLs, `Content-Disposition`, etc.). Verified vs unverified capabilities: [compatibility.md](docs/compatibility.md).
 
 ## Install
 
@@ -23,30 +21,41 @@ const transfer = new TransferEngine({
   uploadUrl: '/api/upload',
   chunkUrl: '/api/upload/chunk',
   completeUrl: '/api/upload/complete',
-  chunkSize: 5 * 1024 * 1024,
+  chunkSize: 5 * 1024 * 1024, // ≤ this → direct; larger → auto slice
   concurrency: 3,
   maxActiveTasks: 3,
   retries: 2,
 });
 
-const taskId = transfer.upload(file, {
-  data: { folderId: 'docs' },
-});
+// Returns taskId immediately — hashing/upload run on the engine scheduler (does not block UI).
+const taskId = transfer.upload(file, { data: { folderId: 'docs' } });
 
-const unsubscribe = transfer.subscribe(taskId, (task) => {
+transfer.subscribe(taskId, (task) => {
   console.log(task?.status, task?.progress);
 });
 
-transfer.pause(taskId);
-transfer.resume(taskId);
-transfer.cancel(taskId);
+// Prefer a plain <a href> click when no custom headers are needed (file is not loaded into JS memory).
+transfer.download('https://cdn.example/report.pdf', { filename: 'report.pdf' });
 ~~~
 
-Files up to chunkSize use direct upload. Larger files use chunked upload. concurrency is the number of chunks uploaded in parallel for one file.
+Files up to `chunkSize` use a single request. Larger files are sliced and uploaded with resume / retry. MD5 hashing (when enabled) runs in a **Web Worker** when available, with a main-thread fallback for tests and older environments.
+
+## Download
+
+~~~ts
+// Direct <a> download (default when headers/credentials stay at defaults)
+transfer.download(url, { filename: 'report.pdf' });
+
+// fetch → Blob → <a download> only when you need custom headers (e.g. Authorization)
+transfer.download(url, {
+  filename: 'report.pdf',
+  headers: { Authorization: 'Bearer token' },
+});
+~~~
+
+Auth and large-file strategy belong on the server: issue a directly navigable URL (or set `Content-Disposition`). This library does **not** implement Range, chunked download, or streamed write-to-disk.
 
 ## Backend compatibility
-
-Common differences are declarative:
 
 ~~~ts
 const transfer = new TransferEngine({
@@ -63,32 +72,18 @@ const transfer = new TransferEngine({
 });
 ~~~
 
-Per-task URL, headers and data override global values. Unusual protocols can implement createDirectRequest, createChunkRequest, createCompleteRequest, or parseResponse.
+Per-task URL, headers and data override global values. Unusual upload protocols can implement `createDirectRequest`, `createChunkRequest`, `createCompleteRequest`, `reconcileUpload`, or `parseResponse`.
 
 ## Resume
 
-Provide a storageAdapter, call await transfer.init(), then resume a restored upload with transfer.resume(taskId, { file }). Browsers cannot persist the original File, so the user must select it again after a page reload.
+Provide a `storageAdapter`, call `await transfer.init()`, then `transfer.resume(taskId, { file })` after reload. Browsers cannot persist the original `File`. Headers are not persisted — pass refreshed credentials to `resume`.
 
-Restored files are checked against a persisted resume descriptor. If a legacy snapshot has no descriptor, flux-transfer restarts it instead of reusing unsafe chunk state. Headers are not persisted; pass refreshed credentials to `resume`. Set a stable `protocolId` for custom protocols. A protocol can implement async `reconcileUpload` to make server-side uploaded chunks authoritative.
+## Retry, scheduling, disposal
 
-## Retry and idempotency
+Default retries: network errors, timeouts, 408, 429, 5xx. `concurrency` limits chunks within one file; `maxActiveTasks` limits running tasks (default 3). `upload()` / `download()` only enqueue work — they return a taskId without blocking the UI thread.
 
-The default policy retries network errors, timeouts, 408, 429 and 5xx responses. Exported `NetworkError`, `NetworkTimeoutError` and `HTTPError` let custom adapters keep the same semantics. Use `shouldRetry` for a custom policy. Set `idempotencyHeader: 'Idempotency-Key'` to add stable operation-specific keys to default protocol requests; this is off by default and requires server-side deduplication.
+Call `await transfer.destroy()` when finished.
 
-## Scheduling, progress and disposal
+## Evidence
 
-`concurrency` limits chunks within one file. `maxActiveTasks` limits running tasks across the engine and defaults to 3. Queued tasks remain `idle` until a slot is free.
-
-Upload tasks report `progressSource: 'confirmed'`: progress counts chunks confirmed by the server, not bytes currently in flight. Download tasks report `progressSource: 'streamed'`.
-
-Call `await transfer.destroy()` when finished. It marks unfinished tasks as cancelled, aborts requests, waits for runners to exit and flushes the final persisted snapshot. The engine rejects new work after destruction. Persistence writes are serialized; use `onStorageError` to observe quota or permission failures.
-
-## Download
-
-transfer.download(url, { filename, headers }) downloads to a Blob. Large-file disk streaming is intentionally outside the core.
-
-## Evidence and compatibility
-
-Run `npm run example` for an end-to-end local HTTP upload that reconciles server state, sends three real multipart chunks and completes the upload. Run `npm run test:consumer` to pack and install the tarball in a clean temporary project, then verify ESM, CommonJS and strict TypeScript imports. Run `npm run benchmark` for synthetic 100 MiB/1 GiB scheduling-overhead measurements; it does not measure network throughput or real Blob memory.
-
-See [compatibility and evidence boundaries](docs/compatibility.md) for verified capabilities and protocols that are not yet supported. CI runs the full publish gate and real HTTP integration test on Node 20.19, 22.12 and 24, plus a separate package-consumer check on Node 18.20.8. The package consumer engine remains Node >=18, while the repository's current test toolchain requires Node 20.19+.
+`npm run example` · `npm run test:consumer` · [compatibility.md](docs/compatibility.md)

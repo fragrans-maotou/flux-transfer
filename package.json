@@ -1,7 +1,7 @@
 {
   "name": "flux-transfer",
-  "version": "0.1.6",
-  "description": "Small, framework-agnostic file transfer engine with chunking, resume, retry and protocol adapters",
+  "version": "0.2.0",
+  "description": "Browser file upload (direct + auto-chunk) and simple a-tag download",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -116,6 +116,11 @@ export class TransferEngine {
     this.pendingFileValidation.clear();
   }
 
+  /**
+   * Enqueue an upload and return its taskId immediately.
+   * Work runs asynchronously on the engine scheduler — the call itself does not block the UI.
+   * Files ≤ chunkSize upload in one request; larger files are sliced automatically.
+   */
   upload(file: File, options: ITransferOptions = {}): string {
     this.assertUsable();
     if (this.config.maxFileSize > 0 && file.size > this.config.maxFileSize) {
@@ -472,6 +477,10 @@ export class TransferEngine {
         const index = pending[cursor];
         cursor += 1;
 
+        // Yield between chunk scheduling turns so the UI event loop stays responsive.
+        await yieldMacrotask();
+        if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+
         const start = index * this.config.chunkSize;
         const chunk = file.slice(start, Math.min(start + this.config.chunkSize, file.size));
         const context = this.protocolContext(taskId, chunk, index, totalChunks);
@@ -522,9 +531,23 @@ export class TransferEngine {
   private async runDownload(taskId: string, signal: AbortSignal): Promise<void> {
     const task = this.requireTask(taskId);
     const options = this.options.get(taskId) ?? {};
-    const startedAt = Date.now();
     this.update(taskId, { status: 'transferring' });
 
+    // Prefer a plain <a> download when the browser can navigate to the URL directly.
+    // Custom headers / non-default credentials require fetch → Blob → <a download>.
+    if (!requiresFetchDownload(this.config, options)) {
+      if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError');
+      triggerAnchorDownload(task.url, task.fileName);
+      this.update(taskId, {
+        status: 'completed',
+        progress: 100,
+        speed: 0,
+        remainingTime: 0,
+      });
+      return;
+    }
+
+    const startedAt = Date.now();
     const response = await this.requestWithRetry<Blob>(
       {
         url: task.url,
@@ -797,6 +820,32 @@ function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** True when download must go through fetch (custom headers or non-default credentials). */
+function requiresFetchDownload(
+  config: IResolvedSDKConfig,
+  options: ITransferOptions,
+): boolean {
+  const headers = { ...config.headers, ...options.headers };
+  if (Object.keys(headers).length > 0) return true;
+  if (config.credentials !== 'same-origin') return true;
+  return false;
+}
+
+/** Direct <a href> download — does not load the file into JS memory. */
+function triggerAnchorDownload(url: string, filename: string): void {
+  if (typeof document === 'undefined') return;
+
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+}
+
 function saveBlob(blob: Blob, filename: string): void {
   if (typeof document === 'undefined') return;
 
@@ -810,6 +859,10 @@ function saveBlob(blob: Blob, filename: string): void {
   document.body.removeChild(anchor);
   // Defer revoke so browsers that start the download asynchronously still see the blob URL.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function yieldMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function createId(): string {

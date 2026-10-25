@@ -137,10 +137,44 @@ describe('TransferEngine lifecycle', () => {
     engine.destroy();
   });
 
-  it('downloads a Blob through the same network boundary', async () => {
+  it('downloads via direct anchor href when no custom headers are set', async () => {
+    const network: INetworkAdapter = {
+      async request() {
+        throw new Error('network should not be used for plain a-tag downloads');
+      },
+    };
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const appendChild = vi.spyOn(document.body, 'appendChild');
+    const removeChild = vi.spyOn(document.body, 'removeChild');
+
+    const engine = new TransferEngine({ networkAdapter: network });
+    const id = engine.download('https://cdn.example/file.bin', { filename: 'a.bin' });
+    const task = await waitFor(engine, id, 'completed');
+
+    expect(task.progress).toBe(100);
+    expect(task.result).toBeUndefined();
+    expect(appendChild).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(removeChild).toHaveBeenCalled();
+
+    const anchor = appendChild.mock.calls.find(
+      (call) => call[0] instanceof HTMLAnchorElement,
+    )?.[0] as HTMLAnchorElement;
+    expect(anchor.href).toBe('https://cdn.example/file.bin');
+    expect(anchor.download).toBe('a.bin');
+    expect(anchor.target).toBe('_blank');
+    expect(anchor.rel).toBe('noopener');
+
+    click.mockRestore();
+    appendChild.mockRestore();
+    removeChild.mockRestore();
+  });
+
+  it('downloads a Blob through fetch when custom headers are required', async () => {
     const blob = new Blob(['abc']);
     const network: INetworkAdapter = {
       async request(config) {
+        expect(config.headers?.Authorization).toBe('Bearer token');
         config.onDownloadProgress?.(3, 3);
         return ok(blob);
       },
@@ -152,7 +186,10 @@ describe('TransferEngine lifecycle', () => {
     const appendChild = vi.spyOn(document.body, 'appendChild');
     const removeChild = vi.spyOn(document.body, 'removeChild');
 
-    const engine = new TransferEngine({ networkAdapter: network });
+    const engine = new TransferEngine({
+      networkAdapter: network,
+      headers: { Authorization: 'Bearer token' },
+    });
     const id = engine.download('/file', { filename: 'a.txt' });
     const task = await waitFor(engine, id, 'completed');
 
@@ -174,14 +211,11 @@ describe('TransferEngine lifecycle', () => {
   });
 
   it('completes download without triggering save when document is unavailable', async () => {
-    const blob = new Blob(['abc']);
     const network: INetworkAdapter = {
       async request() {
-        return ok(blob);
+        throw new Error('network should not be used for plain a-tag downloads');
       },
     };
-    const createObjectURL = vi.fn().mockReturnValue('blob:test');
-    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
     const originalDocument = globalThis.document;
     // @ts-expect-error intentional non-browser simulation
     delete globalThis.document;
@@ -190,10 +224,9 @@ describe('TransferEngine lifecycle', () => {
     const id = engine.download('/file', { filename: 'a.txt' });
     const task = await waitFor(engine, id, 'completed');
 
-    expect(task.result).toBe(blob);
-    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(task.progress).toBe(100);
+    expect(task.result).toBeUndefined();
     globalThis.document = originalDocument;
-    vi.unstubAllGlobals();
   });
 
   it('rejects files over the configured limit', () => {
