@@ -1,8 +1,18 @@
 # flux-transfer
 
+[中文文档](./README_CN.md)
+
 A small browser file-transfer engine.
 
+Verified vs unverified capabilities are documented in [compatibility and evidence boundaries](docs/compatibility.md).
+
 The core owns one transfer pipeline: direct upload, chunking, concurrency, retry, pause/resume, progress and state. Backend-specific fields and response shapes stay at the protocol boundary.
+
+## Install
+
+~~~bash
+npm install flux-transfer
+~~~
 
 ## Usage
 

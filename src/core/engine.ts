@@ -798,12 +798,18 @@ function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
 }
 
 function saveBlob(blob: Blob, filename: string): void {
+  if (typeof document === 'undefined') return;
+
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(anchor);
+  // Defer revoke so browsers that start the download asynchronously still see the blob URL.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function createId(): string {

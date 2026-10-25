@@ -149,6 +149,8 @@ describe('TransferEngine lifecycle', () => {
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const appendChild = vi.spyOn(document.body, 'appendChild');
+    const removeChild = vi.spyOn(document.body, 'removeChild');
 
     const engine = new TransferEngine({ networkAdapter: network });
     const id = engine.download('/file', { filename: 'a.txt' });
@@ -157,8 +159,40 @@ describe('TransferEngine lifecycle', () => {
     expect(task.result).toBe(blob);
     expect(task.transferredBytes).toBe(3);
     expect(task.progressSource).toBe('streamed');
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(appendChild).toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
+    expect(removeChild).toHaveBeenCalled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:test');
+    });
     click.mockRestore();
+    appendChild.mockRestore();
+    removeChild.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('completes download without triggering save when document is unavailable', async () => {
+    const blob = new Blob(['abc']);
+    const network: INetworkAdapter = {
+      async request() {
+        return ok(blob);
+      },
+    };
+    const createObjectURL = vi.fn().mockReturnValue('blob:test');
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
+    const originalDocument = globalThis.document;
+    // @ts-expect-error intentional non-browser simulation
+    delete globalThis.document;
+
+    const engine = new TransferEngine({ networkAdapter: network });
+    const id = engine.download('/file', { filename: 'a.txt' });
+    const task = await waitFor(engine, id, 'completed');
+
+    expect(task.result).toBe(blob);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    globalThis.document = originalDocument;
     vi.unstubAllGlobals();
   });
 
