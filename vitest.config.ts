@@ -14,6 +14,8 @@ export default defineConfig({
         '**/*.config.ts',
         '**/*.d.ts',
         '**/types.ts',
+        'examples/',
+        '**/spark-md5.min.ts',
       ],
       thresholds: {
         lines: 80,

@@ -105,6 +105,7 @@ function createHashWorker(): Worker {
 }
 
 /** Runs inside the Worker blob; closed over nothing from the module scope. */
+/* v8 ignore start -- executed only after toString() inside the Worker blob */
 function hashWorkerBootstrap(): void {
   const ctx = self as unknown as Worker;
 
@@ -170,6 +171,8 @@ function hashWorkerBootstrap(): void {
     });
   }
 }
+
+/* v8 ignore stop */
 
 async function computeFileHashMainThread(
   file: File,
